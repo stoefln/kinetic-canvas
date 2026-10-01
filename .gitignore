@@ -1,0 +1,21 @@
+# Swift Package Manager and local app builds
+.build/
+.swiftpm/
+DerivedData/
+
+# Xcode user settings
+*.xcuserstate
+xcuserdata/
+
+# Python model exporter
+Tools/RVMExport/.venv/
+Tools/RVMExport/rvm_mobilenetv3.pth
+__pycache__/
+*.py[cod]
+
+# macOS metadata
+.DS_Store
+._*
+
+*.mov
+*.mp4
