@@ -98,7 +98,9 @@ final class AppController: ObservableObject {
     @Published private(set) var selectedPresetID: UUID?
     @Published var presetName = ""
     @Published private(set) var isSavingPreset = false
-    @Published private(set) var metrics = PerformanceSnapshot.zero
+    /// Kept off `AppController`'s `@Published` surface so metrics updates do not
+    /// re-render the whole control panel. See `MetricsStore`.
+    let metricsStore = MetricsStore()
     @Published private(set) var statusMessage: String?
     @Published private(set) var projectorStatus = "Preparing video output…"
     @Published private(set) var projectorConnected = false
@@ -147,7 +149,7 @@ final class AppController: ObservableObject {
             Task { @MainActor in self?.accept(frame: frame) }
         }
         camera.onError = { [weak self] message in
-            Task { @MainActor in self?.statusMessage = message }
+            Task { @MainActor in self?.setStatusMessage(message) }
         }
 
         videoAssets = Self.discoverVideoAssets()
@@ -179,7 +181,7 @@ final class AppController: ObservableObject {
         cameras = camera.availableCameras()
         selectedCameraID = cameras.first?.id ?? ""
         guard !selectedCameraID.isEmpty else {
-            statusMessage = "No camera was found. Connect a webcam or capture device."
+            setStatusMessage("No camera was found. Connect a webcam or capture device.")
             return
         }
         updateOutputMirroring(cameraID: selectedCameraID)
@@ -187,20 +189,20 @@ final class AppController: ObservableObject {
         metricsTimer?.invalidate()
         metricsTimer = .scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
             guard let self else { return }
-            Task { @MainActor in self.metrics = self.monitor.snapshot() }
+            Task { @MainActor in self.metricsStore.snapshot = self.monitor.snapshot() }
         }
 
         Task {
             let granted = await camera.requestAccess()
             guard granted else {
-                statusMessage = "Camera access was denied. Enable it in System Settings → Privacy & Security → Camera."
+                setStatusMessage("Camera access was denied. Enable it in System Settings → Privacy & Security → Camera.")
                 return
             }
             do {
                 try camera.start(cameraID: selectedCameraID)
-                statusMessage = "\(engine.displayName) active."
+                setStatusMessage("\(engine.displayName) active.")
             } catch {
-                statusMessage = error.localizedDescription
+                setStatusMessage(error.localizedDescription)
             }
         }
     }
@@ -235,7 +237,7 @@ final class AppController: ObservableObject {
             try camera.switchCamera(cameraID: id)
             updateOutputMirroring(cameraID: id)
         } catch {
-            statusMessage = error.localizedDescription
+            setStatusMessage(error.localizedDescription)
         }
     }
 
@@ -259,12 +261,12 @@ final class AppController: ObservableObject {
             engine = replacement
             rvmProfile = profile
             monitor.reset()
-            metrics = .zero
+            metricsStore.snapshot = .zero
             renderer.clearTrailHistory()
             renderer.clearSampleHistory()
-            statusMessage = "\(replacement.displayName) active."
+            setStatusMessage("\(replacement.displayName) active.")
         } catch {
-            statusMessage = "Could not switch RVM quality: \(error.localizedDescription)"
+            setStatusMessage("Could not switch RVM quality: \(error.localizedDescription)")
         }
     }
 
@@ -369,9 +371,12 @@ final class AppController: ObservableObject {
             ($0, OverlayBlendMode.allCases.randomElement() ?? .normal)
         })
         if activeEffects.contains(.lineSampler) {
-            sampleLines = [SampleLine(ax: 0.2, ay: 0.5, bx: 0.8, by: 0.5, midiChannel: 0)]
+            var line = SampleLine(ax: 0.2, ay: 0.5, bx: 0.8, by: 0.5, midiChannel: 0)
+            // A randomized look should actually show its sampler line.
+            line.visibility = .random(in: 0.5...1)
+            sampleLines = [line]
         }
-        statusMessage = "Randomized \(effectCount) effect\(effectCount == 1 ? "" : "s")."
+        setStatusMessage("Randomized \(effectCount) effect\(effectCount == 1 ? "" : "s").")
     }
 
     func removeEffect(_ effect: EffectKind) {
@@ -439,6 +444,15 @@ final class AppController: ObservableObject {
         sampleLines.removeAll { $0.id == id }
     }
 
+    /// Assigns a line's MIDI channel. Channels stay unique across lines: if the
+    /// target channel is already in use, the two lines swap so routing is never
+    /// duplicated (which would cross-trigger instruments).
+    func setSampleChannel(id: UUID, channel: Int) {
+        let updated = SampleLine.assigningChannel(channel, to: id, in: sampleLines)
+        guard updated != sampleLines else { return }
+        sampleLines = updated
+    }
+
     func moveEffect(_ effect: EffectKind, by offset: Int) {
         guard let source = activeEffects.firstIndex(of: effect) else { return }
         let destination = source + offset
@@ -464,7 +478,7 @@ final class AppController: ObservableObject {
         guard !isSavingPreset else { return }
         let trimmedName = presetName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            statusMessage = "Enter a preset name first."
+            setStatusMessage("Enter a preset name first.")
             return
         }
         applyEffectsToRenderer()
@@ -477,7 +491,7 @@ final class AppController: ObservableObject {
         let captureID = UUID()
         pendingPresetCaptureID = captureID
         isSavingPreset = true
-        statusMessage = "Capturing preview for “\(preset.name)”…"
+        setStatusMessage("Capturing preview for “\(preset.name)”…")
         renderer.captureNextFrame(id: captureID) { [weak self] imageData in
             Task { @MainActor [weak self] in
                 self?.finishSavingPreset(preset, captureID: captureID, imageData: imageData)
@@ -489,7 +503,7 @@ final class AppController: ObservableObject {
             self.renderer.cancelFrameCapture(id: captureID)
             self.pendingPresetCaptureID = nil
             self.isSavingPreset = false
-            self.statusMessage = "No output frame was available. Preset was not saved."
+            self.setStatusMessage("No output frame was available. Preset was not saved.")
         }
     }
 
@@ -498,7 +512,7 @@ final class AppController: ObservableObject {
         pendingPresetCaptureID = nil
         isSavingPreset = false
         guard let imageData else {
-            statusMessage = "Could not capture the output frame. Preset was not saved."
+            setStatusMessage("Could not capture the output frame. Preset was not saved.")
             return
         }
         do {
@@ -520,9 +534,9 @@ final class AppController: ObservableObject {
             selectedPresetID = preset.id
             presetName = preset.name
             persistPresets()
-            statusMessage = "Preset “\(preset.name)” saved."
+            setStatusMessage("Preset “\(preset.name)” saved.")
         } catch {
-            statusMessage = "Could not save preset preview: \(error.localizedDescription)"
+            setStatusMessage("Could not save preset preview: \(error.localizedDescription)")
         }
     }
 
@@ -541,7 +555,16 @@ final class AppController: ObservableObject {
         self.selectedPresetID = replacement.id
         presetName = replacement.name
         renderer.clearTrailHistory()
-        statusMessage = "Preset “\(deletedName)” deleted."
+        setStatusMessage("Preset “\(deletedName)” deleted.")
+    }
+
+    /// Publishes a status message only when it actually changes. `@Published`
+    /// fires on every assignment, so repeated identical messages (for example
+    /// AVFoundation's per-frame "dropped a late camera frame") would otherwise
+    /// rebuild the whole control panel once per dropped frame.
+    private func setStatusMessage(_ message: String?) {
+        guard statusMessage != message else { return }
+        statusMessage = message
     }
 
     private func syncEffects() {
@@ -909,7 +932,7 @@ final class AppController: ObservableObject {
                     monitor.recordRendered(renderMS: renderMS, captureHostTime: frame.hostTime)
                 }
             } catch {
-                Task { @MainActor in self?.statusMessage = "Matting failed: \(error.localizedDescription)" }
+                Task { @MainActor in self?.setStatusMessage("Matting failed: \(error.localizedDescription)") }
             }
             Task { @MainActor in self?.inferenceInProgress = false }
         }

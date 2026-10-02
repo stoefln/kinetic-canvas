@@ -52,7 +52,10 @@ struct SampleLine: Codable, Identifiable, Equatable {
     var root = 0
     var octave = 4
     var rhythm = 2
-    var visibility = 1.0
+    var triggerMode: SampleTriggerMode = .rhythm
+    /// Visual opacity of the line on the output. 0 = hidden by default; the
+    /// editing pad still draws a faint guide so the line stays draggable.
+    var visibility = 0.0
     var showNotes = false
 
     init(ax: Double, ay: Double, bx: Double, by: Double, midiChannel: Int = -1,
@@ -65,13 +68,15 @@ struct SampleLine: Codable, Identifiable, Equatable {
             root = settings.root
             octave = settings.octave
             rhythm = settings.rhythm
+            triggerMode = settings.triggerMode
             visibility = settings.visibility
             showNotes = settings.showNotes
         }
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, ax, ay, bx, by, midiChannel, midiEnabled, scale, root, octave, rhythm, visibility, showNotes
+        case id, ax, ay, bx, by, midiChannel, midiEnabled, scale, root, octave, rhythm,
+             triggerMode, visibility, showNotes
     }
 
     init(from decoder: Decoder) throws {
@@ -88,7 +93,8 @@ struct SampleLine: Codable, Identifiable, Equatable {
         octave = min(9, max(-1, try c.decodeIfPresent(Int.self, forKey: .octave) ?? 4))
         while (octave + 1) * 12 + root + (scale.offsets.last ?? 0) > 127 { octave -= 1 }
         rhythm = min(16, max(1, try c.decodeIfPresent(Int.self, forKey: .rhythm) ?? 2))
-        visibility = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .visibility) ?? 1))
+        triggerMode = try c.decodeIfPresent(SampleTriggerMode.self, forKey: .triggerMode) ?? .rhythm
+        visibility = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .visibility) ?? 0))
         showNotes = try c.decodeIfPresent(Bool.self, forKey: .showNotes) ?? false
     }
 
@@ -119,6 +125,20 @@ struct SampleLine: Codable, Identifiable, Equatable {
             used.insert(free)
         }
         return lines
+    }
+
+    /// Assigns `id` to `channel`, swapping with whichever line already owns it so
+    /// channels stay unique and no two lines ever share a routing channel.
+    static func assigningChannel(_ channel: Int, to id: UUID, in lines: [SampleLine]) -> [SampleLine] {
+        guard (0..<16).contains(channel),
+              let index = lines.firstIndex(where: { $0.id == id }),
+              lines[index].midiChannel != channel else { return lines }
+        var updated = lines
+        if let other = updated.firstIndex(where: { $0.id != id && $0.midiChannel == channel }) {
+            updated[other].midiChannel = updated[index].midiChannel
+        }
+        updated[index].midiChannel = channel
+        return updated
     }
 
     static let noteClasses = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
@@ -156,6 +176,22 @@ enum SampleDirection: String, CaseIterable, Codable, Identifiable {
     case both, left, right
     var id: String { rawValue }
     var label: String { rawValue.capitalized }
+}
+
+/// How a line's occupied segments become notes.
+enum SampleTriggerMode: String, CaseIterable, Codable, Identifiable {
+    /// Retrigger the segment's note on every line tick (1/16 grid × rhythm).
+    case rhythm
+    /// Hold one note for as long as the segment keeps pixels.
+    case singleShot
+
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .rhythm: "Rhythm"
+        case .singleShot: "Single Shot"
+        }
+    }
 }
 
 struct VideoAsset: Identifiable, Hashable {

@@ -1,5 +1,16 @@
 import Foundation
 import QuartzCore
+import Combine
+
+/// Holds the periodic performance snapshot in its own observable so the 2 Hz
+/// metrics refresh only invalidates the small metrics row, not the whole
+/// control panel. `AppController` is a single `ObservableObject`; publishing
+/// metrics on it re-ran the entire effect stack (every slider, pad and layout)
+/// twice a second, which showed up as a small periodic main-thread stall.
+@MainActor
+final class MetricsStore: ObservableObject {
+    @Published var snapshot: PerformanceSnapshot = .zero
+}
 
 struct PerformanceSnapshot {
     let captureFPS: Double

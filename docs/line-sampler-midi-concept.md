@@ -21,12 +21,13 @@ The Line Sampler card gets one numeric **BPM** control, shared by every line, an
 | Per-line control | Behavior | Proposed initial value |
 | --- | --- | --- |
 | Generate MIDI notes | Enables/disables MIDI for this line. Turning it off stops its sounding notes immediately. Visual sampling and line drawing continue. | Off for old and new lines |
-| MIDI channel | Identifies this line to an external host, allowing the host to route lines to different instrument tracks. Assign a stable channel 1...16 automatically per line; show the assigned channel in the row and allow an override only if needed. | Auto |
+| MIDI channel | Identifies this line to an external host, allowing the host to route lines to different instrument tracks. Assign a stable channel 1...16 automatically per line; show the assigned channel in the row and allow an override. Choosing a channel already owned by another line swaps the two so channels stay unique. | Auto |
 | Scale | Determines the ordered pitch offsets and therefore the segment count. Start with Chromatic, Major, Natural Minor, Major Pentatonic, Minor Pentatonic, and Blues; use named definitions, not free-form offsets in the first version. | Chromatic |
 | Root note / key | A per-line note-class picker (C through B) turns scale degrees into absolute MIDI pitches. | C |
 | Octave | Determines the base octave; display MIDI note names using the convention C4 = MIDI 60. Clamp choices so every scale pitch stays in 0...127. | 4 |
 | Rhythm | One interval per line, represented as an integer number of sixteenth notes: 1/16, 1/8 (= 2/16), 3/16 (= one tick every three sixteenths), 1/4 (= 4/16), etc. | 1/8 |
-| Visibility | 0...100% visual opacity of the source line, boundaries, and optional note labels. At **≤ 1%**, draw none of those elements. This does not mute MIDI. | 100% |
+| Trigger mode | **Rhythm** retriggers the segment's note on every line tick while it has pixels. **Single Shot** holds one note for as long as the segment keeps pixels and releases it when the segment empties. | Rhythm |
+| Visibility | 0...100% visual opacity of the source line, boundaries, and optional note labels. At **≤ 1%**, draw none of those elements. This does not mute MIDI. | 0% (hidden until set) |
 | Show notes | Draw each segment's note name at its center when the line is visible. This affects display only. | Off |
 
 Show all line settings in an expandable row keyed by the line UUID. Keep the A/B endpoint handles usable even when visibility is ≤ 1%, for example by retaining a selected-line edit affordance in the control pad; the projected overlay should obey visibility strictly. A line can also be deleted from its row.

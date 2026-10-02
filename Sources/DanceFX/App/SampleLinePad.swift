@@ -59,10 +59,17 @@ struct SampleLinePad: View {
 
     private func drawLine(_ a: CGPoint, _ b: CGPoint, line: SampleLine, label: String,
                           selected: Bool, context: inout GraphicsContext) {
-        let opacity = line.visibility > 0.01 ? line.visibility : 0
+        let visible = line.visibility > 0.01
+        let opacity = visible ? line.visibility : 0
         var path = Path()
         path.move(to: a)
         path.addLine(to: b)
+        if !visible {
+            // Hidden lines still need an editable presence on the pad; the
+            // projector overlay obeys visibility strictly and draws nothing.
+            context.stroke(path, with: .color(.gray.opacity(selected ? 0.8 : 0.5)),
+                           style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+        }
         if opacity > 0 {
             context.stroke(path, with: .color(.cyan.opacity(opacity)), lineWidth: 2)
             let count = line.scale.offsets.count

@@ -79,19 +79,7 @@ struct ContentView: View {
                 .frame(width: 180)
             }
 
-            AdaptiveFlowLayout(horizontalSpacing: 20) {
-                metric("Capture", controller.metrics.captureFPS, "fps")
-                metric("Processed", controller.metrics.processedFPS, "fps")
-                metric("Inference", controller.metrics.inferenceMS, "ms")
-                metric("Render", controller.metrics.renderMS, "ms")
-                metric("Latency", controller.metrics.latencyMS, "ms")
-                Text("Dropped  \(controller.metrics.droppedFrames)")
-                    .monospacedDigit()
-
-                Button("Reset Matting") { controller.resetMatting() }
-                    .keyboardShortcut("r", modifiers: [.command])
-            }
-            .font(.system(.callout, design: .rounded))
+            MetricsRow(store: controller.metricsStore) { controller.resetMatting() }
 
             Divider()
 
@@ -342,60 +330,81 @@ struct ContentView: View {
             }
 
         case .lineSampler:
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Drag on the black pad to add a line. New lines copy the previous line’s settings and get their own MIDI channel. Drag an endpoint to adjust it. A → B defines note order.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                SampleLinePad(controller: controller)
-                    .frame(width: 320, height: 180)
-                HStack {
-                    Text("\(controller.sampleLines.count) lines (max 16)")
-                        .foregroundStyle(.secondary)
-                    Button("Clear all") { controller.sampleLines.removeAll() }
-                        .disabled(controller.sampleLines.isEmpty)
-                }
-                HStack {
-                    Text("BPM")
-                    TextField("BPM", value: sampleBPMBinding, format: .number.precision(.fractionLength(0)))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 64)
-                    Stepper("BPM", value: sampleBPMBinding, in: 30...240, step: 1)
-                        .labelsHidden()
-                }
-                Text("MIDI channels stay with their lines. Channel 10 is General MIDI percussion.")
-                    .font(.caption2)
-                    .foregroundStyle(.secondary)
-                ForEach($controller.sampleLines) { lineBinding in
-                    let id = lineBinding.wrappedValue.id
-                    SampleLineSettings(
-                        line: lineBinding,
-                        number: (controller.sampleLines.firstIndex(where: { $0.id == id }) ?? 0) + 1
-                    ) {
-                        controller.deleteSampleLine(id: id)
+            VStack(alignment: .leading, spacing: 12) {
+                parameterSection("Lines", systemImage: "line.diagonal") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Drag on the pad to add a line; drag an endpoint to adjust it. A → B sets note order. Lines are hidden on the output until Visibility is raised.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        SampleLinePad(controller: controller)
+                            .frame(width: 320, height: 180)
+                        HStack {
+                            Text("\(controller.sampleLines.count) lines (max 16)")
+                                .foregroundStyle(.secondary)
+                            Button("Clear all") { controller.sampleLines.removeAll() }
+                                .disabled(controller.sampleLines.isEmpty)
+                        }
+                        ForEach($controller.sampleLines) { lineBinding in
+                            let id = lineBinding.wrappedValue.id
+                            SampleLineSettings(
+                                line: lineBinding,
+                                number: (controller.sampleLines.firstIndex(where: { $0.id == id }) ?? 0) + 1,
+                                setChannel: { controller.setSampleChannel(id: id, channel: $0) }
+                            ) {
+                                controller.deleteSampleLine(id: id)
+                            }
+                        }
                     }
                 }
-                Picker("Direction", selection: $controller.sampleDirection) {
-                    ForEach(SampleDirection.allCases) { direction in
-                        Text(direction.label).tag(direction)
+
+                Divider()
+
+                parameterSection("Sampling", systemImage: "rectangle.split.3x1") {
+                    AdaptiveFlowLayout(horizontalSpacing: 14) {
+                        Picker("Direction", selection: $controller.sampleDirection) {
+                            ForEach(SampleDirection.allCases) { direction in
+                                Text(direction.label).tag(direction)
+                            }
+                        }
+                        effectSlider("Speed", value: $controller.sampleSpeed, range: 20...600,
+                                     display: "\(Int(controller.sampleSpeed)) px/s", enabled: true)
+                        HStack(spacing: 6) {
+                            Text("Samples")
+                            TextField("Count", value: sampleCountBinding, format: .number)
+                                .textFieldStyle(.roundedBorder)
+                                .multilineTextAlignment(.trailing)
+                                .frame(width: 58)
+                            Stepper("Samples", value: sampleCountBinding, in: 1...512)
+                                .labelsHidden()
+                        }
+                        effectSlider("Thickness", value: $controller.sampleThickness, range: 1...24,
+                                     display: String(format: "%.1f px", controller.sampleThickness), enabled: true)
+                        effectSlider("Opacity", value: $controller.sampleOpacity, range: 0...1,
+                                     display: "\(Int(controller.sampleOpacity * 100))%", enabled: true)
+                        effectSlider("Fade", value: $controller.sampleFade, range: 0...4,
+                                     display: String(format: "%.1f", controller.sampleFade), enabled: true)
                     }
                 }
-                effectSlider("Speed", value: $controller.sampleSpeed, range: 20...600,
-                             display: "\(Int(controller.sampleSpeed)) px/s", enabled: true)
-                HStack(spacing: 6) {
-                    Text("Samples")
-                    TextField("Count", value: sampleCountBinding, format: .number)
-                        .textFieldStyle(.roundedBorder)
-                        .multilineTextAlignment(.trailing)
-                        .frame(width: 58)
-                    Stepper("Samples", value: sampleCountBinding, in: 1...512)
-                        .labelsHidden()
+
+                Divider()
+
+                parameterSection("MIDI Output", systemImage: "music.note") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack(spacing: 6) {
+                            Text("Tempo")
+                            TextField("BPM", value: sampleBPMBinding, format: .number.precision(.fractionLength(0)))
+                                .textFieldStyle(.roundedBorder)
+                                .frame(width: 64)
+                            Stepper("BPM", value: sampleBPMBinding, in: 30...240, step: 1)
+                                .labelsHidden()
+                            Text("BPM")
+                                .foregroundStyle(.secondary)
+                        }
+                        Text("Each line keeps its own channel. Channel 10 is percussion in General MIDI.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
                 }
-                effectSlider("Sampling thickness", value: $controller.sampleThickness, range: 1...24,
-                             display: String(format: "%.1f px", controller.sampleThickness), enabled: true)
-                effectSlider("Opacity", value: $controller.sampleOpacity, range: 0...1,
-                             display: "\(Int(controller.sampleOpacity * 100))%", enabled: true)
-                effectSlider("Fade", value: $controller.sampleFade, range: 0...4,
-                             display: String(format: "%.1f", controller.sampleFade), enabled: true)
             }
 
         case .particles:
@@ -483,6 +492,27 @@ struct ContentView: View {
         .disabled(!enabled)
     }
 
+    /// A light labelled grouping inside an effect card. Keeps long option lists
+    /// (Line Sampler especially) scannable without adding a second row header.
+    private func parameterSection<Content: View>(
+        _ title: String,
+        systemImage: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: systemImage)
+                Text(title.uppercased())
+                    .tracking(1.1)
+            }
+            .font(.system(.caption2, design: .rounded, weight: .bold))
+            .foregroundStyle(Color.accentColor.opacity(0.85))
+
+            content()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
     private var sampleCountBinding: Binding<Int> {
         Binding(
             get: { controller.sampleCount },
@@ -495,6 +525,29 @@ struct ContentView: View {
             get: { controller.sampleBPM },
             set: { controller.sampleBPM = $0.isFinite ? min(240, max(30, $0)) : 120 }
         )
+    }
+}
+
+/// Observes only `MetricsStore`, so its twice-per-second refresh stays local to
+/// this row instead of rebuilding every effect card in the control panel.
+private struct MetricsRow: View {
+    @ObservedObject var store: MetricsStore
+    let reset: () -> Void
+
+    var body: some View {
+        AdaptiveFlowLayout(horizontalSpacing: 20) {
+            metric("Capture", store.snapshot.captureFPS, "fps")
+            metric("Processed", store.snapshot.processedFPS, "fps")
+            metric("Inference", store.snapshot.inferenceMS, "ms")
+            metric("Render", store.snapshot.renderMS, "ms")
+            metric("Latency", store.snapshot.latencyMS, "ms")
+            Text("Dropped  \(store.snapshot.droppedFrames)")
+                .monospacedDigit()
+
+            Button("Reset Matting", action: reset)
+                .keyboardShortcut("r", modifiers: [.command])
+        }
+        .font(.system(.callout, design: .rounded))
     }
 
     private func metric(_ name: String, _ value: Double, _ unit: String) -> some View {

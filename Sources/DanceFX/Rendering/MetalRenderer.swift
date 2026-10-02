@@ -172,6 +172,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var signalMaskTexture: MTLTexture?
     private var snapshotPool: [SignalSnapshotTextures] = []
     private var sampleHistories: [UUID: SampleHistory] = [:]
+    private var sampleHistoryIDs: Set<UUID> = []
     private var sampleSourceTexture: MTLTexture?
     private let occupancyLock = NSLock()
     private var occupancyBuffers: [MTLBuffer] = []
@@ -1176,6 +1177,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
     func clearSampleHistory() {
         sampleHistories.removeAll()
+        sampleHistoryIDs.removeAll()
     }
 
     func draw(in view: MTKView) {
@@ -1193,8 +1195,15 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             trailFrames.removeFirst(expiredCount)
         }
         if snapshotPool.count > 17 { snapshotPool.removeFirst(snapshotPool.count - 17) }
-        let availableHistory = trailFrames.filter { $0.capturedAt < (frame?.submittedAt ?? 0) - 0.001 }
-        let history = Array(availableHistory.suffix(max(0, min(cloneCount, 16))))
+        // Only build the trail layer list when the trail actually composites;
+        // otherwise this filter + array allocation ran every frame for nothing.
+        let history: [TrailFrame]
+        if clonesEnabled && displayMode.rawValue >= DisplayMode.foreground.rawValue {
+            let availableHistory = trailFrames.filter { $0.capturedAt < (frame?.submittedAt ?? 0) - 0.001 }
+            history = Array(availableHistory.suffix(max(0, min(cloneCount, 16))))
+        } else {
+            history = []
+        }
         let shouldCaptureSignal = clonesEnabled
             && displayMode.rawValue >= DisplayMode.foreground.rawValue
             && (lastSnapshotTime == 0 || now - lastSnapshotTime >= trailSnapshotInterval)
@@ -1324,13 +1333,21 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 processingLimitOrder: UInt32.max
             )
             : []
-        let upstreamParticleVertices = particlesEnabled
-            ? makeParticleVertices(
+        // Rebuild the upstream (pre-trail) particle list only when liquid
+        // distortion treats it differently; otherwise it is identical to the
+        // full list and can be reused without a second pass over every particle.
+        let upstreamParticleVertices: [OverlayVertex]
+        if particlesEnabled,
+           liquidAffectsParticles(before: params.historicalOrder)
+            != liquidAffectsParticles(before: UInt32.max) {
+            upstreamParticleVertices = makeParticleVertices(
                 viewAspect: params.viewAspect,
                 now: now,
                 processingLimitOrder: params.historicalOrder
             )
-            : []
+        } else {
+            upstreamParticleVertices = particleVertices
+        }
 
         if shouldCaptureSignal, let mask = signalMask(width: drawable.texture.width, height: drawable.texture.height) {
             var upstreamParams = params
@@ -1519,7 +1536,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             hypot($0.ax - $0.bx, $0.ay - $0.by) > 0.005
         }
         let ids = Set(lines.map(\.id))
-        sampleHistories = sampleHistories.filter { ids.contains($0.key) }
+        if ids != sampleHistoryIDs {
+            sampleHistories = sampleHistories.filter { ids.contains($0.key) }
+            sampleHistoryIDs = ids
+        }
         guard !lines.isEmpty else { return }
 
         if sampleSourceTexture?.width != output.width || sampleSourceTexture?.height != output.height {
