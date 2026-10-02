@@ -74,6 +74,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
     }
     var sampleLines: [SampleLine] = []
+    var lineMIDI: LineSamplerMIDI?
     var sampleDirection: SampleDirection = .both
     var sampleSpeed: Float = 180
     var sampleCount = 180
@@ -129,6 +130,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let snapshotPipeline: MTLComputePipelineState
     private let sampleCapturePipeline: MTLComputePipelineState
     private let sampleCompositePipeline: MTLComputePipelineState
+    private let sampleOccupancyPipeline: MTLComputePipelineState
     private let thumbnailPipeline: MTLComputePipelineState
     private let skeletonPipelines: [MTLRenderPipelineState]
     private let linesPipelines: [MTLRenderPipelineState]
@@ -171,6 +173,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var snapshotPool: [SignalSnapshotTextures] = []
     private var sampleHistories: [UUID: SampleHistory] = [:]
     private var sampleSourceTexture: MTLTexture?
+    private let occupancyLock = NSLock()
+    private var occupancyBuffers: [MTLBuffer] = []
+    private var occupancyBusy = [false, false, false]
     // Each retained row occupies a fixed amount of geometry. Deriving this from
     // recent render intervals made the entire sampled block breathe when frame
     // delivery varied during UI interaction.
@@ -236,6 +241,14 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         float4 settings; // speed, lifetime, thickness, opacity
         float4 history;  // fade, frame interval, newest row, valid rows
         uint4 options;   // direction, blend mode
+    };
+
+    struct OccupancyLine {
+        float4 endpoints;
+        uint sections;
+        float thickness;
+        uint enabled;
+        uint padding;
     };
 
     struct OverlayVertex {
@@ -773,6 +786,38 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         return float4(color, alpha);
     }
 
+    kernel void sampleOccupancyPass(
+        texture2d<float, access::sample> source [[texture(0)]],
+        constant OccupancyLine* lines [[buffer(0)]],
+        device ushort* bits [[buffer(1)]],
+        uint id [[thread_position_in_grid]])
+    {
+        if (id >= 16) return;
+        OccupancyLine line = lines[id];
+        if (line.enabled == 0 || line.sections == 0) { bits[id] = 0; return; }
+        constexpr sampler s(address::clamp_to_edge, filter::linear);
+        float2 size = float2(source.get_width(), source.get_height());
+        float2 a = line.endpoints.xy * size;
+        float2 b = line.endpoints.zw * size;
+        float2 axis = b - a;
+        float2 normal = float2(axis.y, -axis.x) / max(length(axis), 1.0);
+        ushort mask = 0;
+        for (uint section = 0; section < line.sections; section++) {
+            uint hits = 0;
+            for (uint along = 0; along < 7; along++) {
+                float t = (float(section) + (float(along) + 0.5) / 7.0) / float(line.sections);
+                float2 center = mix(a, b, t);
+                for (int across = -1; across <= 1; across++) {
+                    float2 uv = (center + normal * line.thickness * float(across) * 0.4) / size;
+                    float3 color = source.sample(s, uv).rgb;
+                    if (dot(color, float3(0.2126, 0.7152, 0.0722)) > 0.065) hits++;
+                }
+            }
+            if (hits >= 4) mask |= ushort(1u << section);
+        }
+        bits[id] = mask;
+    }
+
     kernel void sampleCapturePass(
         texture2d<float, access::sample> source [[texture(0)]],
         texture2d<float, access::write> history [[texture(1)]],
@@ -864,6 +909,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                   let signalMask = library.makeFunction(name: "signalMaskPass"),
                   let snapshot = library.makeFunction(name: "snapshotPass"),
                   let sampleCapture = library.makeFunction(name: "sampleCapturePass"),
+                  let sampleOccupancy = library.makeFunction(name: "sampleOccupancyPass"),
                   let sampleComposite = library.makeFunction(name: "sampleCompositePass"),
                   let captureParticleColors = library.makeFunction(name: "captureParticleColors"),
                   let thumbnail = library.makeFunction(name: "thumbnailPass") else {
@@ -875,6 +921,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             self.signalMaskPipeline = try device.makeComputePipelineState(function: signalMask)
             self.snapshotPipeline = try device.makeComputePipelineState(function: snapshot)
             self.sampleCapturePipeline = try device.makeComputePipelineState(function: sampleCapture)
+            self.sampleOccupancyPipeline = try device.makeComputePipelineState(function: sampleOccupancy)
             self.sampleCompositePipeline = try device.makeComputePipelineState(function: sampleComposite)
             self.particleColorCapturePipeline = try device.makeComputePipelineState(function: captureParticleColors)
             self.thumbnailPipeline = try device.makeComputePipelineState(function: thumbnail)
@@ -946,6 +993,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             fatalError("Metal shader compilation failed: \(error)")
         }
         super.init()
+        occupancyBuffers = (0..<3).compactMap { _ in
+            device.makeBuffer(length: 16 * MemoryLayout<UInt16>.stride, options: .storageModeShared)
+        }
         CVMetalTextureCacheCreate(nil, nil, device, nil, &textureCache)
     }
 
@@ -1489,10 +1539,12 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                   destinationOrigin: .init(x: 0, y: 0, z: 0))
         blit.endEncoding()
 
+        encodeSampleOccupancy(lines: lines, source: source, commandBuffer: commandBuffer)
+
         // Capture all lines before compositing any of them, so they sample the same live input.
         var captures: [(MTLTexture, SampleParams)] = []
         for line in lines {
-            if sampleHistories[line.id]?.line != line {
+            if sampleHistories[line.id].map({ !$0.line.sameGeometry(as: line) }) ?? true {
                 let descriptor = MTLTextureDescriptor.texture2DDescriptor(
                     pixelFormat: .bgra8Unorm, width: 512, height: 512, mipmapped: false
                 )
@@ -1538,6 +1590,48 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             encoder.setBytes(&params, length: MemoryLayout<SampleParams>.stride, index: 0)
             dispatch(pipeline: sampleCompositePipeline, output: output, encoder: encoder)
             encoder.endEncoding()
+        }
+    }
+
+    private func encodeSampleOccupancy(lines: [SampleLine], source: MTLTexture,
+                                       commandBuffer: MTLCommandBuffer) {
+        guard lines.contains(where: \.midiEnabled), let lineMIDI else { return }
+        occupancyLock.lock()
+        let slot = occupancyBusy.indices.first(where: { !occupancyBusy[$0] && $0 < occupancyBuffers.count })
+        if let slot { occupancyBusy[slot] = true }
+        occupancyLock.unlock()
+        guard let slot else { return }
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else {
+            occupancyLock.lock()
+            occupancyBusy[slot] = false
+            occupancyLock.unlock()
+            return
+        }
+        var parameters = [OccupancyLine](repeating: OccupancyLine(), count: 16)
+        for (index, line) in lines.enumerated() {
+            parameters[index] = OccupancyLine(
+                endpoints: SIMD4(Float(line.ax), Float(line.ay), Float(line.bx), Float(line.by)),
+                sections: UInt32(line.scale.offsets.count), thickness: sampleThickness,
+                enabled: line.midiEnabled ? 1 : 0, padding: 0)
+        }
+        let ids = lines.map(\.id)
+        let buffer = occupancyBuffers[slot]
+        encoder.setComputePipelineState(sampleOccupancyPipeline)
+        encoder.setTexture(source, index: 0)
+        encoder.setBytes(parameters, length: parameters.count * MemoryLayout<OccupancyLine>.stride, index: 0)
+        encoder.setBuffer(buffer, offset: 0, index: 1)
+        encoder.dispatchThreads(MTLSize(width: 16, height: 1, depth: 1),
+                                threadsPerThreadgroup: MTLSize(width: 16, height: 1, depth: 1))
+        encoder.endEncoding()
+        commandBuffer.addCompletedHandler { [weak self] completed in
+            if completed.status == .completed {
+                let values = buffer.contents().bindMemory(to: UInt16.self, capacity: 16)
+                lineMIDI.updateOccupancy(Dictionary(uniqueKeysWithValues:
+                    ids.enumerated().map { ($0.element, values[$0.offset]) }))
+            }
+            self?.occupancyLock.lock()
+            self?.occupancyBusy[slot] = false
+            self?.occupancyLock.unlock()
         }
     }
 
@@ -2534,6 +2628,14 @@ private struct SampleParams {
     var settings: SIMD4<Float>
     var history: SIMD4<Float>
     var options: SIMD4<UInt32>
+}
+
+private struct OccupancyLine {
+    var endpoints = SIMD4<Float>(repeating: 0)
+    var sections: UInt32 = 0
+    var thickness: Float = 0
+    var enabled: UInt32 = 0
+    var padding: UInt32 = 0
 }
 
 private struct TrailLayerParams {

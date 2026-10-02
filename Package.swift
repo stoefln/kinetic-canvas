@@ -22,7 +22,8 @@ let package = Package(
                 .linkedFramework("MetalKit"),
                 .linkedFramework("Vision")
             ]
-        )
+        ),
+        .testTarget(name: "DanceFXTests", dependencies: ["DanceFX"])
     ],
     swiftLanguageVersions: [.v5]
 )

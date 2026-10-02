@@ -1,3 +1,4 @@
+import AppKit
 import AVFoundation
 import Combine
 import Foundation
@@ -61,7 +62,16 @@ final class AppController: ObservableObject {
             renderer.clearTrailHistory()
         }
     }
-    @Published var sampleLines: [SampleLine] = [] { didSet { syncEffects() } }
+    @Published var sampleLines: [SampleLine] = [] {
+        didSet {
+            if !isApplyingPreset {
+                lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+                                   enabled: isSessionRunning && isEffectEnabled(.lineSampler))
+            }
+            syncEffects()
+        }
+    }
+    @Published var sampleBPM = 120.0 { didSet { syncEffects() } }
     @Published var sampleDirection: SampleDirection = .both { didSet { syncEffects() } }
     @Published var sampleSpeed = 180.0 { didSet { syncEffects() } }
     @Published var sampleCount = 180 { didSet { syncEffects() } }
@@ -99,6 +109,7 @@ final class AppController: ObservableObject {
     }
 
     let renderer: MetalRenderer
+    private let lineMIDI = LineSamplerMIDI()
     private var projectorOutput: ProjectorOutputController?
     private let camera = CameraManager()
     private var engine: MattingEngine
@@ -110,6 +121,7 @@ final class AppController: ObservableObject {
     private var poseInferenceInProgress = false
     private var poseFrameCounter = 0
     private var isApplyingPreset = false
+    private var isSessionRunning = false
     private var presetSelectionTask: Task<Void, Never>?
     private var effectSyncTask: Task<Void, Never>?
     private var pendingPresetCaptureID: UUID?
@@ -119,6 +131,11 @@ final class AppController: ObservableObject {
 
     init() {
         renderer = MetalRenderer()
+        renderer.lineMIDI = lineMIDI
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
+                                               object: nil, queue: .main) { [weak lineMIDI] _ in
+            lineMIDI?.stop()
+        }
         controlPanelTransparent = UserDefaults.standard.bool(forKey: Self.controlPanelTransparentKey)
         do {
             engine = try RVMEngine.bundled(profile: .fast360p, computeUnits: .all)
@@ -148,13 +165,16 @@ final class AppController: ObservableObject {
             presetName = first.name
         }
 
-        projectorOutput = ProjectorOutputController(renderer: renderer) { [weak self] message, connected in
+        projectorOutput = ProjectorOutputController(renderer: renderer, controller: self) { [weak self] message, connected in
             self?.projectorStatus = message
             self?.projectorConnected = connected
         }
     }
 
     func start() {
+        isSessionRunning = true
+        lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+                           enabled: isEffectEnabled(.lineSampler))
         projectorOutput?.start()
         cameras = camera.availableCameras()
         selectedCameraID = cameras.first?.id ?? ""
@@ -186,6 +206,8 @@ final class AppController: ObservableObject {
     }
 
     func stop() {
+        isSessionRunning = false
+        lineMIDI.stop()
         projectorOutput?.stop()
         metricsTimer?.invalidate()
         metricsTimer = nil
@@ -347,13 +369,14 @@ final class AppController: ObservableObject {
             ($0, OverlayBlendMode.allCases.randomElement() ?? .normal)
         })
         if activeEffects.contains(.lineSampler) {
-            sampleLines = [SampleLine(ax: 0.2, ay: 0.5, bx: 0.8, by: 0.5)]
+            sampleLines = [SampleLine(ax: 0.2, ay: 0.5, bx: 0.8, by: 0.5, midiChannel: 0)]
         }
         statusMessage = "Randomized \(effectCount) effect\(effectCount == 1 ? "" : "s")."
     }
 
     func removeEffect(_ effect: EffectKind) {
         activeEffects.removeAll { $0 == effect }
+        if effect == .lineSampler { lineMIDI.stop() }
         disabledEffects.remove(effect)
         effectBlendModes.removeValue(forKey: effect)
         if effect == .lines { renderer.clearTrailHistory() }
@@ -386,12 +409,19 @@ final class AppController: ObservableObject {
         if effect == .historicalTrail || effect == .lines || effect.isVideoFill {
             renderer.clearTrailHistory()
         }
-        if effect == .lineSampler { renderer.clearSampleHistory() }
+        if effect == .lineSampler {
+            lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+                               enabled: isSessionRunning && enabled)
+            renderer.clearSampleHistory()
+        }
     }
 
     func addSampleLine(from a: CGPoint, to b: CGPoint) {
         guard sampleLines.count < 16, hypot(a.x - b.x, a.y - b.y) > 0.01 else { return }
-        sampleLines.append(SampleLine(ax: a.x, ay: a.y, bx: b.x, by: b.y))
+        let used = Set(sampleLines.map(\.midiChannel))
+        guard let channel = (0..<16).first(where: { !used.contains($0) }) else { return }
+        sampleLines.append(SampleLine(ax: a.x, ay: a.y, bx: b.x, by: b.y,
+                                      midiChannel: channel, copying: sampleLines.last))
     }
 
     func moveSampleEndpoint(id: UUID, isStart: Bool, to point: CGPoint) {
@@ -575,6 +605,8 @@ final class AppController: ObservableObject {
         renderer.linesBlendMode = blendMode(for: .lines)
         renderer.linesGeometryOnly = linesGeometryOnly
         renderer.sampleLines = sampleLines
+        lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+                           enabled: isSessionRunning && enabledEffects.contains(.lineSampler))
         renderer.sampleDirection = sampleDirection
         renderer.sampleSpeed = Float(sampleSpeed)
         renderer.sampleCount = sampleCount
@@ -642,6 +674,7 @@ final class AppController: ObservableObject {
             linesThickness: linesThickness,
             linesBlendMode: blendMode(for: .lines),
             sampleLines: sampleLines,
+            sampleBPM: sampleBPM,
             sampleDirection: sampleDirection,
             sampleSpeed: sampleSpeed,
             sampleCount: sampleCount,
@@ -673,6 +706,7 @@ final class AppController: ObservableObject {
 
     private func apply(_ preset: EffectPreset) {
         guard !isApplyingPreset else { return }
+        lineMIDI.stop()
         isApplyingPreset = true
         defer {
             isApplyingPreset = false
@@ -732,7 +766,9 @@ final class AppController: ObservableObject {
         linesConnections = preset.linesConnections ?? 3
         linesGeometryOnly = preset.linesGeometryOnly ?? true
         linesThickness = preset.linesThickness ?? 2.0
-        sampleLines = preset.sampleLines ?? []
+        sampleLines = SampleLine.withStableChannels(preset.sampleLines ?? [])
+        let savedBPM = preset.sampleBPM ?? 120
+        sampleBPM = savedBPM.isFinite ? min(240, max(30, savedBPM)) : 120
         sampleDirection = preset.sampleDirection ?? .both
         sampleSpeed = preset.sampleSpeed ?? 180
         sampleCount = min(512, max(1, preset.sampleCount

@@ -6,12 +6,14 @@ final class ProjectorOutputController: NSObject {
     typealias StatusHandler = @MainActor (_ message: String, _ connected: Bool) -> Void
 
     private let renderer: MetalRenderer
+    private let controller: AppController
     private let statusHandler: StatusHandler
     private var outputWindow: NSWindow?
     private var screenObserver: NSObjectProtocol?
 
-    init(renderer: MetalRenderer, statusHandler: @escaping StatusHandler) {
+    init(renderer: MetalRenderer, controller: AppController, statusHandler: @escaping StatusHandler) {
         self.renderer = renderer
+        self.controller = controller
         self.statusHandler = statusHandler
         super.init()
     }
@@ -83,11 +85,26 @@ final class ProjectorOutputController: NSObject {
         window.isOpaque = true
         window.level = .normal
         window.contentView = NSHostingView(
-            rootView: MetalPreview(renderer: renderer)
+            rootView: ProjectorContent(renderer: renderer, controller: controller)
                 .background(Color.black)
                 .ignoresSafeArea()
         )
         window.setFrame(screen.frame, display: true)
         return window
+    }
+}
+
+private struct ProjectorContent: View {
+    let renderer: MetalRenderer
+    @ObservedObject var controller: AppController
+
+    var body: some View {
+        ZStack {
+            MetalPreview(renderer: renderer)
+            SampleLineOverlay(lines: controller.sampleLines,
+                              visible: controller.activeEffects.contains(.lineSampler)
+                                  && !controller.disabledEffects.contains(.lineSampler))
+                .allowsHitTesting(false)
+        }
     }
 }

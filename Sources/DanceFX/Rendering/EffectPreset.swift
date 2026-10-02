@@ -45,6 +45,111 @@ struct SampleLine: Codable, Identifiable, Equatable {
     var ay: Double
     var bx: Double
     var by: Double
+    /// Zero-based MIDI channel on the DanceFX virtual source; independent of row order.
+    var midiChannel = -1
+    var midiEnabled = false
+    var scale: SampleScale = .chromatic
+    var root = 0
+    var octave = 4
+    var rhythm = 2
+    var visibility = 1.0
+    var showNotes = false
+
+    init(ax: Double, ay: Double, bx: Double, by: Double, midiChannel: Int = -1,
+         copying settings: SampleLine? = nil) {
+        self.ax = ax; self.ay = ay; self.bx = bx; self.by = by
+        self.midiChannel = midiChannel
+        if let settings {
+            midiEnabled = settings.midiEnabled
+            scale = settings.scale
+            root = settings.root
+            octave = settings.octave
+            rhythm = settings.rhythm
+            visibility = settings.visibility
+            showNotes = settings.showNotes
+        }
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, ax, ay, bx, by, midiChannel, midiEnabled, scale, root, octave, rhythm, visibility, showNotes
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        ax = try c.decode(Double.self, forKey: .ax)
+        ay = try c.decode(Double.self, forKey: .ay)
+        bx = try c.decode(Double.self, forKey: .bx)
+        by = try c.decode(Double.self, forKey: .by)
+        midiChannel = try c.decodeIfPresent(Int.self, forKey: .midiChannel) ?? -1
+        midiEnabled = try c.decodeIfPresent(Bool.self, forKey: .midiEnabled) ?? false
+        scale = try c.decodeIfPresent(SampleScale.self, forKey: .scale) ?? .chromatic
+        root = min(11, max(0, try c.decodeIfPresent(Int.self, forKey: .root) ?? 0))
+        octave = min(9, max(-1, try c.decodeIfPresent(Int.self, forKey: .octave) ?? 4))
+        while (octave + 1) * 12 + root + (scale.offsets.last ?? 0) > 127 { octave -= 1 }
+        rhythm = min(16, max(1, try c.decodeIfPresent(Int.self, forKey: .rhythm) ?? 2))
+        visibility = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .visibility) ?? 1))
+        showNotes = try c.decodeIfPresent(Bool.self, forKey: .showNotes) ?? false
+    }
+
+    var pitches: [Int] {
+        let base = (octave + 1) * 12 + root
+        return scale.offsets.map { min(127, max(0, base + $0)) }
+    }
+
+    func sameGeometry(as other: SampleLine) -> Bool {
+        ax == other.ax && ay == other.ay && bx == other.bx && by == other.by
+    }
+
+    /// Assign missing/duplicate legacy routes while preserving every valid unique route.
+    static func withStableChannels(_ input: [SampleLine]) -> [SampleLine] {
+        var lines = Array(input.prefix(16))
+        var used = Set<Int>()
+        for index in lines.indices {
+            let channel = lines[index].midiChannel
+            if (0..<16).contains(channel), !used.contains(channel) {
+                used.insert(channel)
+            } else {
+                lines[index].midiChannel = -1
+            }
+        }
+        for index in lines.indices where lines[index].midiChannel == -1 {
+            guard let free = (0..<16).first(where: { !used.contains($0) }) else { break }
+            lines[index].midiChannel = free
+            used.insert(free)
+        }
+        return lines
+    }
+
+    static let noteClasses = ["C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B"]
+    static func noteName(_ pitch: Int) -> String {
+        "\(noteClasses[pitch % 12])\(pitch / 12 - 1)"
+    }
+}
+
+enum SampleScale: String, CaseIterable, Codable, Identifiable {
+    case chromatic, major, naturalMinor, majorPentatonic, minorPentatonic, blues
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .chromatic: "Chromatic"
+        case .major: "Major"
+        case .naturalMinor: "Natural Minor"
+        case .majorPentatonic: "Major Pentatonic"
+        case .minorPentatonic: "Minor Pentatonic"
+        case .blues: "Blues"
+        }
+    }
+    var offsets: [Int] {
+        switch self {
+        case .chromatic: Array(0..<12)
+        case .major: [0, 2, 4, 5, 7, 9, 11]
+        case .naturalMinor: [0, 2, 3, 5, 7, 8, 10]
+        case .majorPentatonic: [0, 2, 4, 7, 9]
+        case .minorPentatonic: [0, 3, 5, 7, 10]
+        case .blues: [0, 3, 5, 6, 7, 10]
+        }
+    }
 }
 
 enum SampleDirection: String, CaseIterable, Codable, Identifiable {
@@ -175,6 +280,7 @@ struct EffectPreset: Codable, Identifiable, Equatable {
     var linesThickness: Double?
     var linesBlendMode: OverlayBlendMode?
     var sampleLines: [SampleLine]?
+    var sampleBPM: Double? = nil
     var sampleDirection: SampleDirection?
     var sampleSpeed: Double?
     var sampleCount: Int?

@@ -33,6 +33,7 @@ for video_asset in "$repo_dir"/Assets/*; do
             ;;
     esac
 done
+rm -rf "$app_dir/Contents/_CodeSignature"
 xattr -cr "$app_dir"
 codesign --force --deep --sign - "$app_dir"
 

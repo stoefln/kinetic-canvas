@@ -343,7 +343,7 @@ struct ContentView: View {
 
         case .lineSampler:
             VStack(alignment: .leading, spacing: 10) {
-                Text("Drag on the black pad to add a line. Drag an endpoint to adjust it. A → B defines left and right.")
+                Text("Drag on the black pad to add a line. New lines copy the previous line’s settings and get their own MIDI channel. Drag an endpoint to adjust it. A → B defines note order.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 SampleLinePad(controller: controller)
@@ -354,10 +354,24 @@ struct ContentView: View {
                     Button("Clear all") { controller.sampleLines.removeAll() }
                         .disabled(controller.sampleLines.isEmpty)
                 }
-                ForEach(Array(controller.sampleLines.enumerated()), id: \.element.id) { index, line in
-                    HStack {
-                        Text("Line \(index + 1)")
-                        Button("Delete") { controller.deleteSampleLine(id: line.id) }
+                HStack {
+                    Text("BPM")
+                    TextField("BPM", value: sampleBPMBinding, format: .number.precision(.fractionLength(0)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 64)
+                    Stepper("BPM", value: sampleBPMBinding, in: 30...240, step: 1)
+                        .labelsHidden()
+                }
+                Text("MIDI channels stay with their lines. Channel 10 is General MIDI percussion.")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                ForEach($controller.sampleLines) { lineBinding in
+                    let id = lineBinding.wrappedValue.id
+                    SampleLineSettings(
+                        line: lineBinding,
+                        number: (controller.sampleLines.firstIndex(where: { $0.id == id }) ?? 0) + 1
+                    ) {
+                        controller.deleteSampleLine(id: id)
                     }
                 }
                 Picker("Direction", selection: $controller.sampleDirection) {
@@ -473,6 +487,13 @@ struct ContentView: View {
         Binding(
             get: { controller.sampleCount },
             set: { controller.sampleCount = min(512, max(1, $0)) }
+        )
+    }
+
+    private var sampleBPMBinding: Binding<Double> {
+        Binding(
+            get: { controller.sampleBPM },
+            set: { controller.sampleBPM = $0.isFinite ? min(240, max(30, $0)) : 120 }
         )
     }
 
