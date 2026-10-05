@@ -333,23 +333,32 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 parameterSection("Lines", systemImage: "line.diagonal") {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("Drag on the pad to add a line; drag an endpoint to adjust it. A → B sets note order. Lines are hidden on the output until Visibility is raised.")
+                        Text("Drag on the pad to add a line; drag an endpoint to adjust it. A → B sets note order. Lines are hidden on the output until Visibility is raised. Each line can also sample the output of the other lines instead of the camera.")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        SampleLinePad(controller: controller)
+                        SampleLinePad(controller: controller, samplerState: controller.samplerState)
                             .frame(width: 320, height: 180)
                         HStack {
                             Text("\(controller.sampleLines.count) lines (max 16)")
                                 .foregroundStyle(.secondary)
                             Button("Clear all") { controller.sampleLines.removeAll() }
                                 .disabled(controller.sampleLines.isEmpty)
+                            Toggle("Show note names", isOn: $controller.sampleShowNotes)
                         }
                         ForEach($controller.sampleLines) { lineBinding in
                             let id = lineBinding.wrappedValue.id
+                            let channel = lineBinding.wrappedValue.midiChannel
                             SampleLineSettings(
                                 line: lineBinding,
                                 number: (controller.sampleLines.firstIndex(where: { $0.id == id }) ?? 0) + 1,
-                                setChannel: { controller.setSampleChannel(id: id, channel: $0) }
+                                harmony: controller.sampleHarmony,
+                                sharesChannel: channel >= 0
+                                    && controller.sampleLines.filter { $0.midiChannel == channel }.count > 1,
+                                setChannel: { controller.setSampleChannel(id: id, channel: $0) },
+                                setLead: { controller.setSampleLead(id: id, enabled: $0) },
+                                setModulation: { controller.setSampleModulationSource(id: id, enabled: $0) },
+                                setModulationCC: { controller.setSampleModulationCC(id: id, cc: $0) },
+                                testCC: { controller.sendTestCC(id: id) }
                             ) {
                                 controller.deleteSampleLine(id: id)
                             }
@@ -383,6 +392,51 @@ struct ContentView: View {
                                      display: "\(Int(controller.sampleOpacity * 100))%", enabled: true)
                         effectSlider("Fade", value: $controller.sampleFade, range: 0...4,
                                      display: String(format: "%.1f", controller.sampleFade), enabled: true)
+                        effectSlider("Trigger", value: $controller.sampleTriggerThreshold, range: 0.02...1,
+                                     display: "\(Int(controller.sampleTriggerThreshold * 100))%", enabled: true)
+                    }
+                }
+
+                Divider()
+
+                parameterSection("Harmony", systemImage: "music.quarternote.3") {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text("Root Key")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        AdaptiveFlowLayout(horizontalSpacing: 6) {
+                            ForEach(0..<12, id: \.self) { root in
+                                rootKeyButton(root)
+                            }
+                        }
+                        AdaptiveFlowLayout(horizontalSpacing: 14) {
+                            Picker("Scale", selection: $controller.sampleScale) {
+                                ForEach(SampleScale.allCases) { scale in
+                                    Text(scale.label).tag(scale)
+                                }
+                            }
+                            .frame(width: 190)
+                            Picker("Lead transpose", selection: $controller.sampleTransposeMode) {
+                                ForEach(SampleTransposeMode.allCases) { mode in
+                                    Text(mode.label).tag(mode)
+                                }
+                            }
+                            .frame(width: 190)
+                            .help(controller.sampleTransposeMode.detail)
+                            Text("Each line keeps its own register and channel.")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack(spacing: 6) {
+                            Text("Consonance")
+                            Slider(value: $controller.sampleTension, in: 0...1)
+                            Text(controller.sampleHarmony.tensionLabel)
+                                .monospacedDigit()
+                                .frame(minWidth: 84, alignment: .trailing)
+                        }
+                        Text("Limits which notes may sound together. Melodies are never restricted; a blocked segment simply stays silent.")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
                     }
                 }
 
@@ -400,7 +454,34 @@ struct ContentView: View {
                             Text("BPM")
                                 .foregroundStyle(.secondary)
                         }
-                        Text("Each line keeps its own channel. Channel 10 is percussion in General MIDI.")
+                        HStack(spacing: 6) {
+                            Text("Volume")
+                            Slider(value: $controller.sampleMasterVolume, in: 0...1)
+                                .frame(maxWidth: 150)
+                            Text("\(Int(controller.sampleMasterVolume * 100))%")
+                                .monospacedDigit()
+                                .frame(minWidth: 38, alignment: .trailing)
+                        }
+                        .help("MIDI channel volume (CC7) sent to every channel")
+                        Toggle("Quantize note onsets to 1/16 grid", isOn: $controller.sampleQuantize)
+                            .help("New notes wait for the next 16th-note grid line instead of starting mid-grid")
+                        Picker("MIDI ports", selection: $controller.sampleMIDIPortMode) {
+                            ForEach(SampleMIDIPortMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .frame(width: 240)
+                        .help(controller.sampleMIDIPortMode.detail)
+                        HStack(spacing: 6) {
+                            Button("Test note") { controller.sendTestNote() }
+                            Text("Velocity")
+                            Slider(value: $controller.testNoteVelocity, in: 1...127)
+                                .frame(maxWidth: 150)
+                            Text("\(Int(controller.testNoteVelocity.rounded()))")
+                                .monospacedDigit()
+                                .frame(minWidth: 30, alignment: .trailing)
+                        }
+                        Text("Test note plays channel 1 at the chosen velocity to check a host's response. Root and scale are global; each line keeps its own register and channel. Channel 10 is percussion in General MIDI.")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                     }
@@ -511,6 +592,24 @@ struct ContentView: View {
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func rootKeyButton(_ root: Int) -> some View {
+        let selected = controller.sampleRoot == root
+        return Button {
+            controller.sampleRoot = root
+        } label: {
+            Text(SampleLine.noteClasses[root])
+                .font(.system(.caption, design: .rounded, weight: .semibold))
+                .frame(minWidth: 30)
+                .padding(.vertical, 3)
+                .background(
+                    selected ? Color.accentColor.opacity(0.85) : Color.white.opacity(0.08),
+                    in: RoundedRectangle(cornerRadius: 6)
+                )
+                .foregroundStyle(selected ? Color.white : Color.primary)
+        }
+        .buttonStyle(.plain)
     }
 
     private var sampleCountBinding: Binding<Int> {

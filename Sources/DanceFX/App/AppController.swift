@@ -65,11 +65,46 @@ final class AppController: ObservableObject {
     @Published var sampleLines: [SampleLine] = [] {
         didSet {
             if !isApplyingPreset {
-                lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+                lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                                    enabled: isSessionRunning && isEffectEnabled(.lineSampler))
             }
             syncEffects()
         }
+    }
+    /// Global harmony shared by every line. Root and Scale are no longer per line.
+    @Published var sampleRoot = 0 {
+        didSet {
+            guard !isApplyingPreset else { return }
+            clampSampleOctaves()
+            syncEffects()
+        }
+    }
+    @Published var sampleScale: SampleScale = .chromatic {
+        didSet {
+            guard !isApplyingPreset else { return }
+            clampSampleOctaves()
+            syncEffects()
+        }
+    }
+    @Published var sampleTension = 0.5 { didSet { syncEffects() } }
+    /// Global minimum lit fraction for a line segment to trigger a note.
+    @Published var sampleTriggerThreshold = 0.2 { didSet { syncEffects() } }
+    /// Global note-name labels on the line segments.
+    @Published var sampleShowNotes = false
+    /// Global onset quantization: new notes wait for the next 16th-note grid line.
+    @Published var sampleQuantize = true { didSet { syncEffects() } }
+    @Published var testNoteVelocity = 100.0
+    /// Global MIDI channel volume (CC7) applied to every channel.
+    @Published var sampleMasterVolume = 0.8 {
+        didSet { lineMIDI.setMasterVolume(sampleMasterVolume) }
+    }
+    /// How the lead line transposes the other lines.
+    @Published var sampleTransposeMode: SampleTransposeMode = .diatonic { didSet { syncEffects() } }
+    /// Single shared MIDI port, or one virtual port per line. Port per line is
+    /// the default because many hosts bind an input to a single track.
+    @Published var sampleMIDIPortMode: SampleMIDIPortMode = .perLine { didSet { syncEffects() } }
+    var sampleHarmony: SampleHarmony {
+        SampleHarmony(root: sampleRoot, scale: sampleScale, tension: sampleTension)
     }
     @Published var sampleBPM = 120.0 { didSet { syncEffects() } }
     @Published var sampleDirection: SampleDirection = .both { didSet { syncEffects() } }
@@ -95,12 +130,16 @@ final class AppController: ObservableObject {
     @Published var clapExplosionSize = 0.5 { didSet { syncEffects() } }
     @Published var clapExplosionOpacity = 1.0 { didSet { syncEffects() } }
     @Published private(set) var presets: [EffectPreset] = []
-    @Published private(set) var selectedPresetID: UUID?
+    @Published private(set) var selectedPresetID: UUID? {
+        didSet { persistSelectedPresetID() }
+    }
     @Published var presetName = ""
     @Published private(set) var isSavingPreset = false
     /// Kept off `AppController`'s `@Published` surface so metrics updates do not
     /// re-render the whole control panel. See `MetricsStore`.
     let metricsStore = MetricsStore()
+    /// Same idea for per-segment note state driving the sampler visuals.
+    let samplerState = SamplerStateStore()
     @Published private(set) var statusMessage: String?
     @Published private(set) var projectorStatus = "Preparing video output…"
     @Published private(set) var projectorConnected = false
@@ -129,6 +168,7 @@ final class AppController: ObservableObject {
     private var pendingPresetCaptureID: UUID?
     private var metricsTimer: Timer?
     private static let presetsKey = "dancefx.effectPresets.v1"
+    private static let selectedPresetKey = "dancefx.selectedPresetID.v1"
     private static let controlPanelTransparentKey = "dancefx.controlPanel.transparent.v1"
 
     init() {
@@ -161,22 +201,31 @@ final class AppController: ObservableObject {
         let storedPresets = Self.loadStoredPresets()
         presets = storedPresets.isEmpty ? [Self.defaultPreset] : storedPresets
         if storedPresets.isEmpty { persistPresets() }
-        if let first = presets.first {
-            apply(first)
-            selectedPresetID = first.id
-            presetName = first.name
+        // Restore the last selected preset, falling back to the first if it was
+        // deleted or the stored id is stale.
+        let storedSelection = UserDefaults.standard.string(forKey: Self.selectedPresetKey)
+            .flatMap(UUID.init(uuidString:))
+        if let initial = presets.first(where: { $0.id == storedSelection }) ?? presets.first {
+            apply(initial)
+            selectedPresetID = initial.id
+            presetName = initial.name
+            persistSelectedPresetID()
         }
 
         projectorOutput = ProjectorOutputController(renderer: renderer, controller: self) { [weak self] message, connected in
             self?.projectorStatus = message
             self?.projectorConnected = connected
         }
+        lineMIDI.onStateChange = { [weak self] state in
+            Task { @MainActor [weak self] in self?.samplerState.state = state }
+        }
     }
 
     func start() {
         isSessionRunning = true
-        lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+        lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                            enabled: isEffectEnabled(.lineSampler))
+        lineMIDI.setMasterVolume(sampleMasterVolume)
         projectorOutput?.start()
         cameras = camera.availableCameras()
         selectedCameraID = cameras.first?.id ?? ""
@@ -340,6 +389,14 @@ final class AppController: ObservableObject {
         linesThickness = .random(in: 1...16)
         linesGeometryOnly = Bool.random()
         sampleLines = []
+        sampleRoot = Int.random(in: 0..<12)
+        sampleScale = SampleScale.allCases.randomElement() ?? .chromatic
+        sampleTension = .random(in: 0...1)
+        sampleTriggerThreshold = .random(in: 0.05...0.6)
+        sampleShowNotes = Bool.random()
+        sampleQuantize = Bool.random()
+        sampleMasterVolume = .random(in: 0.4...1)
+        sampleTransposeMode = SampleTransposeMode.allCases.randomElement() ?? .diatonic
         sampleDirection = SampleDirection.allCases.randomElement() ?? .both
         sampleSpeed = .random(in: 20...600)
         sampleCount = .random(in: 12...512)
@@ -415,7 +472,7 @@ final class AppController: ObservableObject {
             renderer.clearTrailHistory()
         }
         if effect == .lineSampler {
-            lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+            lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                                enabled: isSessionRunning && enabled)
             renderer.clearSampleHistory()
         }
@@ -444,13 +501,91 @@ final class AppController: ObservableObject {
         sampleLines.removeAll { $0.id == id }
     }
 
-    /// Assigns a line's MIDI channel. Channels stay unique across lines: if the
-    /// target channel is already in use, the two lines swap so routing is never
-    /// duplicated (which would cross-trigger instruments).
+    /// Assigns a line's MIDI channel. Channels may be shared: several lines can
+    /// send to the same channel (and thus the same host instrument/track). The
+    /// MIDI layer keeps a shared pitch sounding until its last line releases it.
     func setSampleChannel(id: UUID, channel: Int) {
         let updated = SampleLine.assigningChannel(channel, to: id, in: sampleLines)
         guard updated != sampleLines else { return }
         sampleLines = updated
+    }
+
+    /// Keeps every line's register inside MIDI's 0...127 range after the global
+    /// root or scale changes.
+    private func clampSampleOctaves() {
+        let harmony = sampleHarmony
+        let lastOffset = harmony.scale.offsets.last ?? 0
+        var updated = sampleLines
+        for index in updated.indices {
+            // The top key sits a whole number of octaves above the base octave.
+            let keys = harmony.resolvedKeyCount(updated[index].keyCount)
+            let topOffset = harmony.topOctaveOffset(forKeys: keys)
+            while updated[index].octave > -1,
+                  (updated[index].octave + topOffset + 1) * 12 + harmony.root + lastOffset > 127 {
+                updated[index].octave -= 1
+            }
+        }
+        if updated != sampleLines { sampleLines = updated }
+    }
+
+    /// Sends one note on channel 1 at `testNoteVelocity` so a MIDI host's
+    /// velocity response can be checked independently of pixel detection.
+    func sendTestNote() {
+        let pitch = sampleHarmony.pitches(octave: 4).first ?? 60
+        let velocity = UInt8(min(127, max(1, Int(testNoteVelocity.rounded()))))
+        lineMIDI.sendTestNote(pitch: pitch, velocity: velocity)
+    }
+
+    /// Marks one line as the lead, clearing any other. A lead that cannot sound
+    /// is pointless, so enabling also turns its MIDI on.
+    func setSampleLead(id: UUID, enabled: Bool) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        var updated = sampleLines
+        if enabled {
+            for i in updated.indices {
+                updated[i].isLead = updated[i].id == id
+                // A modulation line is excluded from notes, so it cannot also be
+                // the lead; making one the lead releases its modulation role.
+                if updated[i].id == id { updated[i].isModulationSource = false }
+            }
+            updated[index].midiEnabled = true
+        } else {
+            updated[index].isLead = false
+        }
+        guard updated != sampleLines else { return }
+        sampleLines = updated
+    }
+
+    /// Toggles one line's modulation role. Several lines can be modulation
+    /// sources at once, each driving its own `modulationCC` on its own channel.
+    /// A modulation line does not generate notes.
+    func setSampleModulationSource(id: UUID, enabled: Bool) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        var updated = sampleLines
+        updated[index].isModulationSource = enabled
+        if enabled {
+            updated[index].isLead = false
+            // A modulation line does not play notes; turn the toggle off so the
+            // row reflects that instead of showing stale state.
+            updated[index].midiEnabled = false
+        }
+        guard updated != sampleLines else { return }
+        sampleLines = updated
+    }
+
+    /// Sets a modulation line's CC number.
+    func setSampleModulationCC(id: UUID, cc: Int) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        let clamped = min(127, max(0, cc))
+        guard sampleLines[index].modulationCC != clamped else { return }
+        sampleLines[index].modulationCC = clamped
+    }
+
+    /// Sends one line's modulation CC at mid value so a host synth's MIDI learn
+    /// can bind it without waiting for a lit line.
+    func sendTestCC(id: UUID) {
+        guard let line = sampleLines.first(where: { $0.id == id && $0.isModulationSource }) else { return }
+        lineMIDI.sendTestModulation(channel: line.midiChannel, controller: line.modulationCC)
     }
 
     func moveEffect(_ effect: EffectKind, by offset: Int) {
@@ -628,7 +763,8 @@ final class AppController: ObservableObject {
         renderer.linesBlendMode = blendMode(for: .lines)
         renderer.linesGeometryOnly = linesGeometryOnly
         renderer.sampleLines = sampleLines
-        lineMIDI.configure(lines: sampleLines, bpm: sampleBPM,
+        renderer.sampleHarmony = sampleHarmony
+        lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                            enabled: isSessionRunning && enabledEffects.contains(.lineSampler))
         renderer.sampleDirection = sampleDirection
         renderer.sampleSpeed = Float(sampleSpeed)
@@ -697,6 +833,13 @@ final class AppController: ObservableObject {
             linesThickness: linesThickness,
             linesBlendMode: blendMode(for: .lines),
             sampleLines: sampleLines,
+            sampleHarmony: sampleHarmony,
+            sampleTriggerThreshold: sampleTriggerThreshold,
+            sampleShowNotes: sampleShowNotes,
+            sampleQuantize: sampleQuantize,
+            sampleMasterVolume: sampleMasterVolume,
+            sampleTransposeMode: sampleTransposeMode,
+            sampleMIDIPortMode: sampleMIDIPortMode,
             sampleBPM: sampleBPM,
             sampleDirection: sampleDirection,
             sampleSpeed: sampleSpeed,
@@ -789,7 +932,22 @@ final class AppController: ObservableObject {
         linesConnections = preset.linesConnections ?? 3
         linesGeometryOnly = preset.linesGeometryOnly ?? true
         linesThickness = preset.linesThickness ?? 2.0
+        // Older presets stored root/scale per line. They reset to the global
+        // defaults (C / Chromatic) rather than guessing from the first line.
+        let savedHarmony = preset.sampleHarmony ?? SampleHarmony()
+        sampleRoot = min(11, max(0, savedHarmony.root))
+        sampleScale = savedHarmony.scale
+        sampleTension = min(1, max(0, savedHarmony.tension))
+        sampleTriggerThreshold = min(1, max(0.01, preset.sampleTriggerThreshold ?? 0.2))
+        // Older presets kept note labels per line; promote them to the global flag.
+        sampleShowNotes = preset.sampleShowNotes
+            ?? (preset.sampleLines?.contains(where: \.showNotes) ?? false)
+        sampleQuantize = preset.sampleQuantize ?? true
+        sampleMasterVolume = min(1, max(0, preset.sampleMasterVolume ?? 0.8))
+        sampleTransposeMode = preset.sampleTransposeMode ?? .diatonic
+        sampleMIDIPortMode = preset.sampleMIDIPortMode ?? .perLine
         sampleLines = SampleLine.withStableChannels(preset.sampleLines ?? [])
+        clampSampleOctaves()
         let savedBPM = preset.sampleBPM ?? 120
         sampleBPM = savedBPM.isFinite ? min(240, max(30, savedBPM)) : 120
         sampleDirection = preset.sampleDirection ?? .both
@@ -848,6 +1006,14 @@ final class AppController: ObservableObject {
         UserDefaults.standard.set(data, forKey: Self.presetsKey)
     }
 
+    private func persistSelectedPresetID() {
+        if let selectedPresetID {
+            UserDefaults.standard.set(selectedPresetID.uuidString, forKey: Self.selectedPresetKey)
+        } else {
+            UserDefaults.standard.removeObject(forKey: Self.selectedPresetKey)
+        }
+    }
+
     private static var thumbnailDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("DanceFX/Preset Thumbnails", isDirectory: true)
@@ -877,7 +1043,11 @@ final class AppController: ObservableObject {
         linesOpacity: 0.65, linesConfidence: 0.35, linesConnections: 3,
         linesGeometryOnly: true,
         linesThickness: 2.0, linesBlendMode: .normal,
-        sampleLines: [], sampleDirection: .both, sampleSpeed: 180,
+        sampleLines: [], sampleHarmony: SampleHarmony(),
+        sampleTriggerThreshold: 0.2, sampleShowNotes: false, sampleQuantize: true,
+        sampleMasterVolume: 0.8, sampleTransposeMode: .diatonic,
+        sampleMIDIPortMode: .perLine,
+        sampleDirection: .both, sampleSpeed: 180,
         sampleCount: 180, sampleLifetime: 3, sampleThickness: 3, sampleOpacity: 0.8,
         sampleFade: 1, sampleBlendMode: .normal,
         particleRate: 60.0, particleLifetime: 1.2, particleSize: 6.0,

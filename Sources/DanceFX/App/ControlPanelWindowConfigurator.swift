@@ -20,10 +20,31 @@ struct ControlPanelWindowConfigurator: NSViewRepresentable {
 private final class ControlPanelWindowProbe: NSView {
     var transparentBackground = false
     private weak var autosavedWindow: NSWindow?
+    private var activationObservers: [NSObjectProtocol] = []
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         configureWindow()
+        installActivationObservers()
+    }
+
+    deinit {
+        activationObservers.forEach { NotificationCenter.default.removeObserver($0) }
+    }
+
+    /// Re-asserts the level whenever DanceFX gains or loses focus. `NSView`
+    /// updates alone do not fire on Cmd-Tab.
+    private func installActivationObservers() {
+        guard activationObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        for name in [NSApplication.didBecomeActiveNotification,
+                     NSApplication.didResignActiveNotification] {
+            activationObservers.append(center.addObserver(
+                forName: name, object: nil, queue: .main
+            ) { [weak self] _ in
+                self?.configureWindow()
+            })
+        }
     }
 
     func configureWindow() {
@@ -33,7 +54,10 @@ private final class ControlPanelWindowProbe: NSView {
             autosavedWindow = window
         }
         window.appearance = NSAppearance(named: .darkAqua)
-        window.level = .floating
+        // Float above the local full-screen preview while DanceFX is the active
+        // app, but drop to a normal level when another app takes focus so the
+        // panel does not stay on top after Cmd-Tab.
+        window.level = NSApp.isActive ? .floating : .normal
         window.collectionBehavior.insert(.fullScreenAuxiliary)
         window.isOpaque = !transparentBackground
         window.backgroundColor = transparentBackground ? .clear : .windowBackgroundColor

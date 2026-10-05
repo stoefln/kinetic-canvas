@@ -102,8 +102,12 @@ private struct ProjectorContent: View {
         ZStack {
             MetalPreview(renderer: renderer)
             SampleLineOverlay(lines: controller.sampleLines,
+                              harmony: controller.sampleHarmony,
+                              showNotes: controller.sampleShowNotes,
+                              transposeMode: controller.sampleTransposeMode,
                               visible: controller.activeEffects.contains(.lineSampler)
-                                  && !controller.disabledEffects.contains(.lineSampler))
+                                  && !controller.disabledEffects.contains(.lineSampler),
+                              state: controller.samplerState)
                 .allowsHitTesting(false)
         }
     }
