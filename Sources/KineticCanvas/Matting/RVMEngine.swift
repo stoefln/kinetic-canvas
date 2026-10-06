@@ -34,7 +34,7 @@ final class RVMEngine: MattingEngine, @unchecked Sendable {
         resizePool = try Self.makeResizePool(width: inputWidth, height: inputHeight)
         model = loadedModel
         displayName = "RVM \(profile.label) FP16 (\(computeUnits.label))"
-        print("DanceFX matting engine: \(displayName)")
+        print("Kinetic Canvas matting engine: \(displayName)")
         print("RVM input: \(inputWidth)×\(inputHeight)")
     }
 

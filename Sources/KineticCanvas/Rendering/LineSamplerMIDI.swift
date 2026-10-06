@@ -3,7 +3,7 @@ import Foundation
 
 /// A single sixteenth-note clock. All mutable state lives on `queue`.
 final class LineSamplerMIDI: @unchecked Sendable {
-    private let queue = DispatchQueue(label: "dancefx.line-sampler-midi", qos: .userInteractive)
+    private let queue = DispatchQueue(label: "kineticcanvas.line-sampler-midi", qos: .userInteractive)
     private var timer: DispatchSourceTimer?
     private var client = MIDIClientRef()
     /// Shared port used in `.single` mode.
@@ -46,8 +46,8 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private struct Voice { let pitch: Int; let channel: UInt8; let offAt: Double }
 
     init() {
-        MIDIClientCreate("DanceFX" as CFString, nil, nil, &client)
-        if client != 0 { MIDISourceCreate(client, "DanceFX Line Sampler" as CFString, &source) }
+        MIDIClientCreate("Kinetic Canvas" as CFString, nil, nil, &client)
+        if client != 0 { MIDISourceCreate(client, "Kinetic Canvas Line Sampler" as CFString, &source) }
     }
 
     deinit {
@@ -503,7 +503,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         if let existing = channelSources[channel] { return existing }
         guard client != 0 else { return nil }
         var endpoint = MIDIEndpointRef()
-        let name = "DanceFX Ch \(Int(channel) + 1)"
+        let name = "Kinetic Canvas Ch \(Int(channel) + 1)"
         MIDISourceCreate(client, name as CFString, &endpoint)
         guard endpoint != 0 else { return nil }
         channelSources[channel] = endpoint
@@ -517,7 +517,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// down while the app runs: a host binds its track inputs to these virtual
     /// devices, and disposing one (for example while switching to a preset that
     /// uses fewer lines, or when no line sampler is present) makes the host drop
-    /// the input and forget the routing. Once a `DanceFX Ch N` port has been
+    /// the input and forget the routing. Once a `Kinetic Canvas Ch N` port has been
     /// published it stays available until the app exits, so preset switches and
     /// temporary absences of a line never disturb the host's track inputs.
     /// Creates one port per channel that has a line.

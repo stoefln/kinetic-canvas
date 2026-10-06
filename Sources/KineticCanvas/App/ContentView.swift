@@ -15,8 +15,10 @@ struct ContentView: View {
                 Color(nsColor: .windowBackgroundColor)
             }
         }
-        .background(ControlPanelWindowConfigurator(
-            transparentBackground: controller.controlPanelTransparent
+        .background(WindowConfigurator(
+            transparentBackground: controller.controlPanelTransparent,
+            autosaveName: "KineticCanvas.ControlPanel.Frame.v1",
+            floatsWhenActive: true
         ))
         .preferredColorScheme(.dark)
     }
@@ -429,7 +431,7 @@ struct ContentView: View {
                         }
                         HStack(spacing: 6) {
                             Text("Consonance")
-                            Slider(value: $controller.sampleTension, in: 0...1)
+                            CommitSlider(value: $controller.sampleTension, range: 0...1)
                             Text(controller.sampleHarmony.tensionLabel)
                                 .monospacedDigit()
                                 .frame(minWidth: 84, alignment: .trailing)
@@ -456,7 +458,7 @@ struct ContentView: View {
                         }
                         HStack(spacing: 6) {
                             Text("Volume")
-                            Slider(value: $controller.sampleMasterVolume, in: 0...1)
+                            CommitSlider(value: $controller.sampleMasterVolume, range: 0...1)
                                 .frame(maxWidth: 150)
                             Text("\(Int(controller.sampleMasterVolume * 100))%")
                                 .monospacedDigit()
@@ -475,7 +477,7 @@ struct ContentView: View {
                         HStack(spacing: 6) {
                             Button("Test note") { controller.sendTestNote() }
                             Text("Velocity")
-                            Slider(value: $controller.testNoteVelocity, in: 1...127)
+                            CommitSlider(value: $controller.testNoteVelocity, range: 1...127)
                                 .frame(maxWidth: 150)
                             Text("\(Int(controller.testNoteVelocity.rounded()))")
                                 .monospacedDigit()
@@ -564,7 +566,7 @@ struct ContentView: View {
     ) -> some View {
         HStack(spacing: 6) {
             Text(label)
-            Slider(value: value, in: range)
+            CommitSlider(value: value, range: range)
                 .frame(minWidth: 70, maxWidth: 130)
             Text(display)
                 .monospacedDigit()

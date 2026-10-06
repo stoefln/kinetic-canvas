@@ -3,15 +3,15 @@
 import PackageDescription
 
 let package = Package(
-    name: "DanceFX",
+    name: "KineticCanvas",
     platforms: [.macOS(.v14)],
     products: [
-        .executable(name: "DanceFX", targets: ["DanceFX"])
+        .executable(name: "KineticCanvas", targets: ["KineticCanvas"])
     ],
     targets: [
         .executableTarget(
-            name: "DanceFX",
-            path: "Sources/DanceFX",
+            name: "KineticCanvas",
+            path: "Sources/KineticCanvas",
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("CoreML"),
@@ -23,7 +23,7 @@ let package = Package(
                 .linkedFramework("Vision")
             ]
         ),
-        .testTarget(name: "DanceFXTests", dependencies: ["DanceFX"])
+        .testTarget(name: "KineticCanvasTests", dependencies: ["KineticCanvas"])
     ],
     swiftLanguageVersions: [.v5]
 )

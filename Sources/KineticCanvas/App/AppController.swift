@@ -155,8 +155,8 @@ final class AppController: ObservableObject {
     private let camera = CameraManager()
     private var engine: MattingEngine
     private let monitor = PerformanceMonitor()
-    private let inferenceQueue = DispatchQueue(label: "dancefx.inference", qos: .userInteractive)
-    private let poseQueue = DispatchQueue(label: "dancefx.pose", qos: .userInitiated)
+    private let inferenceQueue = DispatchQueue(label: "kineticcanvas.inference", qos: .userInteractive)
+    private let poseQueue = DispatchQueue(label: "kineticcanvas.pose", qos: .userInitiated)
     private let poseDetector = BodyPoseDetector()
     private var inferenceInProgress = false
     private var poseInferenceInProgress = false
@@ -167,11 +167,12 @@ final class AppController: ObservableObject {
     private var effectSyncTask: Task<Void, Never>?
     private var pendingPresetCaptureID: UUID?
     private var metricsTimer: Timer?
-    private static let presetsKey = "dancefx.effectPresets.v1"
-    private static let selectedPresetKey = "dancefx.selectedPresetID.v1"
-    private static let controlPanelTransparentKey = "dancefx.controlPanel.transparent.v1"
+    private static let presetsKey = "kineticcanvas.effectPresets.v1"
+    private static let selectedPresetKey = "kineticcanvas.selectedPresetID.v1"
+    private static let controlPanelTransparentKey = "kineticcanvas.controlPanel.transparent.v1"
 
     init() {
+        Self.migrateLegacyStateIfNeeded()
         renderer = MetalRenderer()
         renderer.lineMIDI = lineMIDI
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
@@ -1014,9 +1015,83 @@ final class AppController: ObservableObject {
         }
     }
 
+    /// Bundle identifier used before the app was renamed, and the key names used
+    /// before that. Kept only so the first launch of the final build can adopt
+    /// the old saved state.
+    private static let legacyBundleIdentifier = "local.dancefx.prototype"
+    private static let legacyMigrationKey = "kineticcanvas.migratedLegacy.v3"
+    private static let legacyKeyRenames: [String: String] = [
+        "dancefx.effectPresets.v1": presetsKey,
+        "dancefx.selectedPresetID.v1": selectedPresetKey,
+        "dancefx.controlPanel.transparent.v1": controlPanelTransparentKey
+    ]
+
+    /// One-time adoption of pre-rename state. Presets, the selected preset, and
+    /// window settings may live under the old key names in the current domain
+    /// (an earlier intermediate build) or in the old bundle-identifier domain
+    /// (a direct upgrade). Saved thumbnails live in the old Application Support
+    /// folder. All move on the first launch of the final build. The camera
+    /// permission cannot be migrated (macOS ties TCC grants to the identifier),
+    /// so it is re-prompted once.
+    private static func migrateLegacyStateIfNeeded() {
+        migrateLegacyDefaults()
+        migrateLegacyThumbnails()
+    }
+
+    private static func migrateLegacyDefaults() {
+        let defaults = UserDefaults.standard
+        guard !defaults.bool(forKey: legacyMigrationKey) else { return }
+        // Current domain first (intermediate build), then the old bundle domain.
+        var sources = [defaults.dictionaryRepresentation()]
+        if let legacy = UserDefaults(suiteName: legacyBundleIdentifier) {
+            sources.append(legacy.dictionaryRepresentation())
+        }
+        func legacyValue(for key: String) -> Any? {
+            for source in sources where source[key] != nil { return source[key] }
+            return nil
+        }
+
+        // Presets and settings adopt their new key names.
+        for (oldKey, newKey) in legacyKeyRenames where defaults.object(forKey: newKey) == nil {
+            if let value = legacyValue(for: oldKey) { defaults.set(value, forKey: newKey) }
+        }
+        // Window frames: rename every `NSWindow Frame` key that still carries the
+        // old app name, which covers the SwiftUI main window plus the control
+        // panel and library autosave names.
+        var frameRenames: [(old: String, new: String)] = []
+        for source in sources {
+            for key in source.keys where key.hasPrefix("NSWindow Frame ") && key.contains("DanceFX") {
+                frameRenames.append((key, key.replacingOccurrences(of: "DanceFX", with: "KineticCanvas")))
+            }
+        }
+        for rename in frameRenames where defaults.object(forKey: rename.new) == nil {
+            if let value = legacyValue(for: rename.old) { defaults.set(value, forKey: rename.new) }
+        }
+        // Drop the superseded keys from the current domain.
+        for (oldKey, _) in legacyKeyRenames { defaults.removeObject(forKey: oldKey) }
+        for rename in frameRenames { defaults.removeObject(forKey: rename.old) }
+        // Sweep any other legacy-named key (for example an earlier migration
+        // marker) so nothing branded with the old name survives.
+        for key in defaults.dictionaryRepresentation().keys where key.contains("DanceFX") {
+            defaults.removeObject(forKey: key)
+        }
+
+        defaults.set(true, forKey: legacyMigrationKey)
+    }
+
+    private static func migrateLegacyThumbnails() {
+        let manager = FileManager.default
+        let base = manager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let old = base.appendingPathComponent("DanceFX/Preset Thumbnails", isDirectory: true)
+        let new = base.appendingPathComponent("Kinetic Canvas/Preset Thumbnails", isDirectory: true)
+        guard manager.fileExists(atPath: old.path), !manager.fileExists(atPath: new.path) else { return }
+        try? manager.createDirectory(at: new.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try? manager.moveItem(at: old, to: new)
+    }
+
     private static var thumbnailDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("DanceFX/Preset Thumbnails", isDirectory: true)
+            .appendingPathComponent("Kinetic Canvas/Preset Thumbnails", isDirectory: true)
     }
 
     func thumbnailURL(for preset: EffectPreset) -> URL? {

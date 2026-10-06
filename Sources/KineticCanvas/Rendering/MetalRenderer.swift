@@ -7,7 +7,7 @@ import OSLog
 import simd
 
 final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
-    private static let logger = Logger(subsystem: "app.dancefx.DanceFX", category: "MetalRenderer")
+    private static let logger = Logger(subsystem: "app.kineticcanvas.KineticCanvas", category: "MetalRenderer")
     let device: MTLDevice
     var displayMode: DisplayMode = .composite
     var background: BackgroundChoice = .black
@@ -925,7 +925,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     override init() {
         guard let device = MTLCreateSystemDefaultDevice(),
               let commandQueue = device.makeCommandQueue() else {
-            fatalError("DanceFX requires a Metal-capable Mac.")
+            fatalError("Kinetic Canvas requires a Metal-capable Mac.")
         }
         self.device = device
         self.commandQueue = commandQueue

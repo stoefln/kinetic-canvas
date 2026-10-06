@@ -3,7 +3,9 @@ set -euo pipefail
 
 repo_dir="${0:A:h:h}"
 configuration="${1:-release}"
-app_dir="$repo_dir/.build/DanceFX.app"
+app_dir="$repo_dir/.build/Kinetic Canvas.app"
+# Drop the pre-rename bundle so Finder/Spotlight never shows a stale DanceFX.app.
+rm -rf "$repo_dir/.build/DanceFX.app"
 model_paths=(
     "$repo_dir/Vendor/Models/rvm_mobilenetv3_640x360_s0.5_fp16.mlmodel"
     "$repo_dir/Vendor/Models/rvm_mobilenetv3_1280x720_s0.375_fp16.mlmodel"
@@ -19,7 +21,8 @@ binary_dir="$(swift build --disable-sandbox -c "$configuration" --show-bin-path)
 mkdir -p "$app_dir/Contents/MacOS"
 mkdir -p "$app_dir/Contents/Resources"
 cp "$repo_dir/Info.plist" "$app_dir/Contents/Info.plist"
-cp "$binary_dir/DanceFX" "$app_dir/Contents/MacOS/DanceFX"
+cp "$binary_dir/KineticCanvas" "$app_dir/Contents/MacOS/Kinetic Canvas"
+cp "$repo_dir/Assets/KineticCanvasIcon.icns" "$app_dir/Contents/Resources/KineticCanvasIcon.icns"
 for model_path in "${model_paths[@]}"; do
     xcrun coremlcompiler compile "$model_path" "$app_dir/Contents/Resources" \
         --platform macOS --deployment-target 14.0

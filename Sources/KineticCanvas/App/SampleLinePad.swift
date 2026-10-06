@@ -14,8 +14,13 @@ struct SampleLinePad: View {
             Canvas { context, size in
                 context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(.black))
                 for (index, line) in controller.sampleLines.enumerated() {
-                    let a = CGPoint(x: line.ax * size.width, y: line.ay * size.height)
-                    let b = CGPoint(x: line.bx * size.width, y: line.by * size.height)
+                    var a = CGPoint(x: line.ax * size.width, y: line.ay * size.height)
+                    var b = CGPoint(x: line.bx * size.width, y: line.by * size.height)
+                    // Follow the dragged endpoint locally; the controller is only
+                    // written on release.
+                    if line.id == endpointID, let dragEnd {
+                        if movingStart { a = dragEnd } else { b = dragEnd }
+                    }
                     drawLine(a, b, line: line, label: "\(index + 1)", selected: selectedID == line.id, context: &context)
                 }
                 if let dragStart, let dragEnd, endpointID == nil {
@@ -35,19 +40,16 @@ struct SampleLinePad: View {
                         }
                     }
                     dragEnd = point
-                    if let endpointID {
-                        controller.moveSampleEndpoint(
-                            id: endpointID, isStart: movingStart,
-                            to: normalized(point, size: geometry.size)
-                        )
-                    }
                 }
                 .onEnded { value in
-                    if endpointID == nil, let dragStart {
-                        controller.addSampleLine(
-                            from: normalized(dragStart, size: geometry.size),
-                            to: normalized(clamped(value.location, size: geometry.size), size: geometry.size)
-                        )
+                    let end = normalized(clamped(value.location, size: geometry.size), size: geometry.size)
+                    if let endpointID {
+                        // Commit the whole endpoint move once, instead of on every
+                        // pointer event, which would re-render the panel and
+                        // reallocate the line's sampler history each frame.
+                        controller.moveSampleEndpoint(id: endpointID, isStart: movingStart, to: end)
+                    } else if let dragStart {
+                        controller.addSampleLine(from: normalized(dragStart, size: geometry.size), to: end)
                     }
                     dragStart = nil
                     dragEnd = nil

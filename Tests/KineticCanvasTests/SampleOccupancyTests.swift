@@ -1,6 +1,6 @@
 import Foundation
 import XCTest
-@testable import DanceFX
+@testable import KineticCanvas
 
 final class SampleOccupancyTests: XCTestCase {
     func testThresholdGatesOccupancy() {

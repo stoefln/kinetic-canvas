@@ -45,7 +45,7 @@ struct SampleLine: Codable, Identifiable, Equatable {
     var ay: Double
     var bx: Double
     var by: Double
-    /// Zero-based MIDI channel on the DanceFX virtual source; independent of row order.
+    /// Zero-based MIDI channel on the Kinetic Canvas virtual source; independent of row order.
     var midiChannel = -1
     var midiEnabled = false
     /// When on, the line sounds at most one note at a time. The held segment is
@@ -246,8 +246,8 @@ enum SampleMIDIPortMode: String, CaseIterable, Codable, Identifiable, Sendable {
     var label: String { self == .single ? "Single port (channels)" : "Port per line" }
     var detail: String {
         self == .single
-            ? "One DanceFX device; route by MIDI channel in the host"
-            : "One DanceFX device per line; assign a different track input to each"
+            ? "One Kinetic Canvas device; route by MIDI channel in the host"
+            : "One Kinetic Canvas device per line; assign a different track input to each"
     }
 }
 

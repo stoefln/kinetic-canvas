@@ -1,13 +1,13 @@
 import CoreMIDI
 import Foundation
 import XCTest
-@testable import DanceFX
+@testable import KineticCanvas
 
 final class LineSamplerMIDIPortTests: XCTestCase {
     func testPerLineModeKeepsChannelPortsAlive() {
         var midi: LineSamplerMIDI? = LineSamplerMIDI()
-        let portName = "DanceFX Ch 1"
-        // Another DanceFX instance can legally own the same-named source, so
+        let portName = "Kinetic Canvas Ch 1"
+        // Another Kinetic Canvas instance can legally own the same-named source, so
         // compare against the baseline instead of asserting absence.
         let baseline = countSources(named: portName)
 
@@ -35,7 +35,7 @@ final class LineSamplerMIDIPortTests: XCTestCase {
 
     func testAnyLinePublishesItsChannelPort() {
         var midi: LineSamplerMIDI? = LineSamplerMIDI()
-        let portName = "DanceFX Ch 3"
+        let portName = "Kinetic Canvas Ch 3"
         let baseline = countSources(named: portName)
 
         // A line with MIDI off is still a device: a modulation line (or a line

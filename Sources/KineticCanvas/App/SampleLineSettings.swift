@@ -137,7 +137,7 @@ struct SampleLineSettings: View {
             if line.samplesOtherLines {
                 HStack(spacing: 6) {
                     Text("Safe distance")
-                    Slider(value: $line.sampleSafeDistance, in: 0...32)
+                    CommitSlider(value: $line.sampleSafeDistance, range: 0...32)
                     Text("\(Int(line.sampleSafeDistance)) px")
                         .monospacedDigit()
                         .frame(minWidth: 40, alignment: .trailing)
@@ -187,7 +187,7 @@ struct SampleLineSettings: View {
     private var visibilityControl: some View {
         HStack(spacing: 6) {
             Text("Visibility")
-            Slider(value: $line.visibility, in: 0...1)
+            CommitSlider(value: $line.visibility, range: 0...1)
             Text(line.visibility <= 0.01 ? "Hidden" : "\(Int(line.visibility * 100))%")
                 .monospacedDigit()
                 .foregroundStyle(line.visibility <= 0.01 ? .secondary : .primary)

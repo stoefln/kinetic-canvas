@@ -6,8 +6,8 @@ final class CameraManager: NSObject, AVCaptureVideoDataOutputSampleBufferDelegat
     var onError: ((String) -> Void)?
 
     private let session = AVCaptureSession()
-    private let sessionQueue = DispatchQueue(label: "dancefx.camera.session", qos: .userInitiated)
-    private let captureQueue = DispatchQueue(label: "dancefx.camera.frames", qos: .userInteractive)
+    private let sessionQueue = DispatchQueue(label: "kineticcanvas.camera.session", qos: .userInitiated)
+    private let captureQueue = DispatchQueue(label: "kineticcanvas.camera.frames", qos: .userInteractive)
     private let output = AVCaptureVideoDataOutput()
 
     func availableCameras() -> [CameraDescriptor] {

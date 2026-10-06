@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="Kinetic Canvas app icon">
+  <defs>
+    <radialGradient id="ground" cx="0.77" cy="0.17" r="1.03">
+      <stop offset="0" stop-color="#263256"/>
+      <stop offset="0.54" stop-color="#171a35"/>
+      <stop offset="1" stop-color="#101424"/>
+    </radialGradient>
+    <linearGradient id="upper" x1="390" y1="526" x2="716" y2="278" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#45E8E0"/>
+      <stop offset="0.52" stop-color="#5DA9FF"/>
+      <stop offset="1" stop-color="#9478FF"/>
+    </linearGradient>
+    <linearGradient id="lower" x1="409" y1="505" x2="711" y2="749" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#68E8DB"/>
+      <stop offset="0.48" stop-color="#C084F7"/>
+      <stop offset="1" stop-color="#FF7FA9"/>
+    </linearGradient>
+    <linearGradient id="frame" x1="220" y1="220" x2="815" y2="815" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D8E5FF" stop-opacity="0.8"/>
+      <stop offset="0.47" stop-color="#8FA5DD" stop-opacity="0.36"/>
+      <stop offset="1" stop-color="#C1A8F4" stop-opacity="0.75"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="29"/>
+    </filter>
+  </defs>
+
+  <rect x="12" y="12" width="1000" height="1000" rx="218" fill="url(#ground)"/>
+  <rect x="12" y="12" width="1000" height="1000" rx="218" fill="none" stroke="#FFFFFF" stroke-opacity="0.16" stroke-width="4"/>
+
+  <!-- The frame reads as a canvas; the open corners keep it from feeling like a UI control. -->
+  <path d="M286 207 H706 Q817 207 817 318 V397 M817 627 V706 Q817 817 706 817 H628 M396 817 H318 Q207 817 207 706 V628 M207 397 V318 Q207 207 318 207 H396"
+        fill="none" stroke="url(#frame)" stroke-width="22" stroke-linecap="round"/>
+
+  <!-- Faint motion traces make the letter feel drawn, without adding tiny details. -->
+  <path d="M674 260 C594 351 495 444 398 520" fill="none" stroke="#5C8FF8" stroke-opacity="0.28" stroke-width="52" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M417 523 C530 564 616 662 709 753" fill="none" stroke="#F17EBB" stroke-opacity="0.25" stroke-width="52" stroke-linecap="round" filter="url(#glow)"/>
+
+  <path d="M356 295 V730" fill="none" stroke="#F4F5F8" stroke-width="65" stroke-linecap="round"/>
+  <path d="M688 288 C596 384 500 462 406 526" fill="none" stroke="url(#upper)" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M414 525 C523 559 620 661 697 738" fill="none" stroke="url(#lower)" stroke-width="76" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="411" cy="524" r="39" fill="#A7F6EA"/>
+</svg>

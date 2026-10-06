@@ -41,7 +41,7 @@ final class ProjectorOutputController: NSObject {
     }
 
     func refresh() {
-        // NSScreen.screens starts with the display containing the menu bar. DanceFX
+        // NSScreen.screens starts with the display containing the menu bar. Kinetic Canvas
         // treats that as the operator display and prefers the first other one for output.
         // With no external display, the primary display becomes the local preview.
         guard let primaryScreen = NSScreen.screens.first else {
