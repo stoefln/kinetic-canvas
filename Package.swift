@@ -14,6 +14,7 @@ let package = Package(
             path: "Sources/KineticCanvas",
             linkerSettings: [
                 .linkedFramework("AVFoundation"),
+                .linkedFramework("CoreAudioKit"),
                 .linkedFramework("CoreML"),
                 .linkedFramework("CoreImage"),
                 .linkedFramework("CoreMedia"),

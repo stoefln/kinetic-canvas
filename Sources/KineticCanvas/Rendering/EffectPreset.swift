@@ -87,6 +87,22 @@ struct SampleLine: Codable, Identifiable, Equatable {
     /// own stream never overlaps its capture band. The renderer enlarges this
     /// automatically to cover the newest strip and sampling thickness.
     var sampleSafeDistance = 8.0
+    /// Where this line sends its trigger: a host instrument (MIDI), a
+    /// tempo-synced loop, or a one-shot hit. MIDI keeps the original behavior.
+    var destination: SampleLineDestination = .midi
+    /// Imported audio for a loop or one-shot destination. Ignored by MIDI.
+    var clip: AudioClipReference? = nil
+    /// Captured Vital AU sound for a `.vital` line. Ignored by other destinations.
+    var instrument: AUStateReference? = nil
+    /// Master switch for this line. When off, the line produces no notes, CC, or
+    /// clip triggers and shows dimmed, but stays in the list and editable.
+    var isEnabled = true
+
+    /// A line needs the renderer's occupancy pass when it produces notes, drives
+    /// a modulation CC, or triggers audio.
+    var needsOccupancy: Bool {
+        isEnabled && (midiEnabled || isModulationSource || destination != .midi)
+    }
 
     init(ax: Double, ay: Double, bx: Double, by: Double, midiChannel: Int = -1,
          copying settings: SampleLine? = nil) {
@@ -113,7 +129,8 @@ struct SampleLine: Codable, Identifiable, Equatable {
         case id, ax, ay, bx, by, midiChannel, midiEnabled, isMonophonic, isLead,
              isModulationSource, modulationCC,
              scale, root, octave, keyCount,
-             rhythm, triggerMode, visibility, showNotes, samplesOtherLines, sampleSafeDistance
+             rhythm, triggerMode, visibility, showNotes, samplesOtherLines, sampleSafeDistance,
+             destination, clip, instrument, isEnabled
     }
 
     init(from decoder: Decoder) throws {
@@ -145,6 +162,10 @@ struct SampleLine: Codable, Identifiable, Equatable {
         showNotes = try c.decodeIfPresent(Bool.self, forKey: .showNotes) ?? false
         samplesOtherLines = try c.decodeIfPresent(Bool.self, forKey: .samplesOtherLines) ?? false
         sampleSafeDistance = min(64, max(0, try c.decodeIfPresent(Double.self, forKey: .sampleSafeDistance) ?? 8))
+        destination = try c.decodeIfPresent(SampleLineDestination.self, forKey: .destination) ?? .midi
+        clip = try c.decodeIfPresent(AudioClipReference.self, forKey: .clip)
+        instrument = try c.decodeIfPresent(AUStateReference.self, forKey: .instrument)
+        isEnabled = try c.decodeIfPresent(Bool.self, forKey: .isEnabled) ?? true
     }
 
     func sameGeometry(as other: SampleLine) -> Bool {
@@ -193,6 +214,19 @@ struct SampleLine: Codable, Identifiable, Equatable {
               lines[index].midiChannel != channel else { return lines }
         var updated = lines
         updated[index].midiChannel = channel
+        return updated
+    }
+
+    /// Returns `lines` with `id`'s modulation role set. Enabling also clears the
+    /// lead role. Note settings (`midiEnabled`, octave, keys, rhythm, …) are
+    /// intentionally preserved: the MIDI layer suppresses notes while a line is a
+    /// modulation source, so toggling the role back off restores it unchanged
+    /// instead of leaving `midiEnabled` stuck off.
+    static func settingModulation(_ enabled: Bool, for id: UUID, in lines: [SampleLine]) -> [SampleLine] {
+        guard let index = lines.firstIndex(where: { $0.id == id }) else { return lines }
+        var updated = lines
+        updated[index].isModulationSource = enabled
+        if enabled { updated[index].isLead = false }
         return updated
     }
 
@@ -555,4 +589,27 @@ struct EffectPreset: Codable, Identifiable, Equatable {
     var clapExplosionSize: Double?
     var clapExplosionOpacity: Double?
     var clapExplosionBlendMode: OverlayBlendMode?
+    /// How many bodies pose tracking follows at once. Global rather than
+    /// per-effect; optional so presets saved before it existed still load.
+    var maxPeople: Int? = nil
+    /// Effects whose parameter panel is collapsed in the stack. Purely a view
+    /// state, but stored with the preset so a saved look reopens compactly.
+    /// Optional so presets saved before it existed still load.
+    var collapsedEffects: Set<EffectKind>? = nil
+}
+
+extension EffectPreset {
+    /// Destinations used by lines that produce audio (loops, one-shots, or a
+    /// hosted instrument), in first-seen order. Empty for a MIDI-only preset.
+    var audioDestinations: [SampleLineDestination] {
+        var seen = Set<SampleLineDestination>()
+        var result: [SampleLineDestination] = []
+        for line in sampleLines ?? [] where line.destination != .midi {
+            if seen.insert(line.destination).inserted { result.append(line.destination) }
+        }
+        return result
+    }
+
+    /// True when the preset routes any line to audio rather than a MIDI port.
+    var hasAudioConfiguration: Bool { !audioDestinations.isEmpty }
 }

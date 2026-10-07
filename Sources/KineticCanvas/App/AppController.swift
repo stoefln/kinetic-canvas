@@ -2,6 +2,8 @@ import AppKit
 import AVFoundation
 import Combine
 import Foundation
+import SwiftUI
+import UniformTypeIdentifiers
 
 @MainActor
 final class AppController: ObservableObject {
@@ -16,6 +18,9 @@ final class AppController: ObservableObject {
     @Published private(set) var rvmProfile: RVMProfile = .fast360p
     @Published var activeEffects: [EffectKind] = [.gradientOverlay, .historicalTrail] { didSet { syncEffects() } }
     @Published private(set) var disabledEffects: Set<EffectKind> = [] { didSet { syncEffects() } }
+    /// Effects whose parameter panel is collapsed in the stack. View-only state,
+    /// so it does not touch the renderer; it is saved with the preset.
+    @Published var collapsedEffects: Set<EffectKind> = []
     @Published private(set) var effectBlendModes: [EffectKind: OverlayBlendMode] = [:] { didSet { syncEffects() } }
     @Published var gradientStyle: GradientStyle = .neon { didSet { syncEffects() } }
     @Published var gradientOpacity = 0.72 { didSet { syncEffects() } }
@@ -62,6 +67,10 @@ final class AppController: ObservableObject {
             renderer.clearTrailHistory()
         }
     }
+    /// How many bodies Vision tracks at once. One is the fastest and most stable;
+    /// higher values add a skeleton, mesh, and limb emitters per person. Global
+    /// because it shapes the shared pose detection every pose-driven effect reads.
+    @Published var maxPeople = 1
     @Published var sampleLines: [SampleLine] = [] {
         didSet {
             if !isApplyingPreset {
@@ -94,9 +103,13 @@ final class AppController: ObservableObject {
     /// Global onset quantization: new notes wait for the next 16th-note grid line.
     @Published var sampleQuantize = true { didSet { syncEffects() } }
     @Published var testNoteVelocity = 100.0
-    /// Global MIDI channel volume (CC7) applied to every channel.
+    /// Global MIDI channel volume (CC7) applied to every channel, and the clip
+    /// engine's master level.
     @Published var sampleMasterVolume = 0.8 {
-        didSet { lineMIDI.setMasterVolume(sampleMasterVolume) }
+        didSet {
+            lineMIDI.setMasterVolume(sampleMasterVolume)
+            clipAudio.setMasterVolume(sampleMasterVolume)
+        }
     }
     /// How the lead line transposes the other lines.
     @Published var sampleTransposeMode: SampleTransposeMode = .diatonic { didSet { syncEffects() } }
@@ -106,7 +119,12 @@ final class AppController: ObservableObject {
     var sampleHarmony: SampleHarmony {
         SampleHarmony(root: sampleRoot, scale: sampleScale, tension: sampleTension)
     }
-    @Published var sampleBPM = 120.0 { didSet { syncEffects() } }
+    @Published var sampleBPM = 120.0 {
+        didSet {
+            transport.requestBPM(sampleBPM, at: ProcessInfo.processInfo.systemUptime)
+            syncEffects()
+        }
+    }
     @Published var sampleDirection: SampleDirection = .both { didSet { syncEffects() } }
     @Published var sampleSpeed = 180.0 { didSet { syncEffects() } }
     @Published var sampleCount = 180 { didSet { syncEffects() } }
@@ -150,7 +168,18 @@ final class AppController: ObservableObject {
     }
 
     let renderer: MetalRenderer
-    private let lineMIDI = LineSamplerMIDI()
+    /// Single musical clock shared by the MIDI grid and the clip audio engine.
+    let transport = MusicalTransport()
+    private let lineMIDI: LineSamplerMIDI
+    /// Native clip player for tempo-synced loops and one-shot hits.
+    let clipAudio: ClipAudioEngine
+    /// Per-line clip state, kept off the published surface so a loop state
+    /// change does not rebuild the whole control panel.
+    let clipState: ClipStateStore
+    /// Vital-only AU instrument host, sharing the clip engine's audio graph.
+    let instrumentHost: InstrumentHost
+    /// Vital availability and per-line slot status, kept off the published surface.
+    let instrumentState = InstrumentStateStore()
     private var projectorOutput: ProjectorOutputController?
     private let camera = CameraManager()
     private var engine: MattingEngine
@@ -166,6 +195,8 @@ final class AppController: ObservableObject {
     private var presetSelectionTask: Task<Void, Never>?
     private var effectSyncTask: Task<Void, Never>?
     private var pendingPresetCaptureID: UUID?
+    /// Vital editor windows, kept alive by line id so reopening focuses them.
+    private var vitalWindows: [UUID: NSWindow] = [:]
     private var metricsTimer: Timer?
     private static let presetsKey = "kineticcanvas.effectPresets.v1"
     private static let selectedPresetKey = "kineticcanvas.selectedPresetID.v1"
@@ -174,10 +205,32 @@ final class AppController: ObservableObject {
     init() {
         Self.migrateLegacyStateIfNeeded()
         renderer = MetalRenderer()
-        renderer.lineMIDI = lineMIDI
+        let midi = LineSamplerMIDI(transport: transport)
+        lineMIDI = midi
+        let audio = ClipAudioEngine(transport: transport)
+        clipAudio = audio
+        let stateStore = ClipStateStore()
+        clipState = stateStore
+        // A rising edge on a loop or one-shot line toggles or fires its clip.
+        midi.onAudioTrigger = { trigger in audio.handle(trigger) }
+        audio.onStateChange = { [weak stateStore] states in
+            Task { @MainActor in stateStore?.states = states }
+        }
+        // The Vital host attaches its AU nodes to the same engine so one app
+        // engine owns mixing and output.
+        let host = InstrumentHost { body in audio.performGraphEdit(body) }
+        instrumentHost = host
+        let instrumentStore = instrumentState
+        midi.onInstrumentEvent = { event in host.handle(event) }
+        host.onStatusChange = { [weak instrumentStore] statuses in
+            Task { @MainActor in instrumentStore?.statuses = statuses }
+        }
+        instrumentStore.availability = host.availability
+        instrumentStore.sounds = AUStateStore.catalog()
+        renderer.lineMIDI = midi
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification,
-                                               object: nil, queue: .main) { [weak lineMIDI] _ in
-            lineMIDI?.stop()
+                                               object: nil, queue: .main) { [weak midi] _ in
+            midi?.stop()
         }
         controlPanelTransparent = UserDefaults.standard.bool(forKey: Self.controlPanelTransparentKey)
         do {
@@ -224,9 +277,13 @@ final class AppController: ObservableObject {
 
     func start() {
         isSessionRunning = true
+        transport.start(at: ProcessInfo.processInfo.systemUptime)
         lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                            enabled: isEffectEnabled(.lineSampler))
         lineMIDI.setMasterVolume(sampleMasterVolume)
+        clipAudio.start(lines: sampleLines, enabled: isEffectEnabled(.lineSampler),
+                        quantize: sampleQuantize, masterVolume: sampleMasterVolume)
+        instrumentHost.configure(lines: sampleLines, enabled: isEffectEnabled(.lineSampler))
         projectorOutput?.start()
         cameras = camera.availableCameras()
         selectedCameraID = cameras.first?.id ?? ""
@@ -260,6 +317,9 @@ final class AppController: ObservableObject {
     func stop() {
         isSessionRunning = false
         lineMIDI.stop()
+        clipAudio.stop()
+        instrumentHost.stop()
+        transport.reset()
         projectorOutput?.stop()
         metricsTimer?.invalidate()
         metricsTimer = nil
@@ -356,6 +416,8 @@ final class AppController: ObservableObject {
         activeEffects = []
         disabledEffects = []
         effectBlendModes = [:]
+        // A randomized stack opens fully expanded so its new controls are visible.
+        collapsedEffects = []
 
         gradientStyle = GradientStyle.allCases.randomElement() ?? .neon
         gradientOpacity = .random(in: 0...1)
@@ -382,6 +444,7 @@ final class AppController: ObservableObject {
         videoScale = .random(in: 0.5...3)
         videoFillTiming = VideoFillTiming.allCases.randomElement() ?? .live
 
+        maxPeople = Int.random(in: 1...4)
         skeletonOpacity = .random(in: 0.1...1)
         skeletonConfidence = .random(in: 0.1...0.9)
         linesOpacity = .random(in: 0.1...1)
@@ -437,9 +500,24 @@ final class AppController: ObservableObject {
         setStatusMessage("Randomized \(effectCount) effect\(effectCount == 1 ? "" : "s").")
     }
 
+    /// Collapses or expands one effect's parameter panel in the stack.
+    func setEffectCollapsed(_ effect: EffectKind, collapsed: Bool) {
+        if collapsed {
+            collapsedEffects.insert(effect)
+        } else {
+            collapsedEffects.remove(effect)
+        }
+    }
+
     func removeEffect(_ effect: EffectKind) {
         activeEffects.removeAll { $0 == effect }
-        if effect == .lineSampler { lineMIDI.stop() }
+        collapsedEffects.remove(effect)
+        if effect == .lineSampler {
+            // Stop notes and hosted instruments, but leave the shared audio
+            // engine running; the reconfigure below stops any playing clips.
+            lineMIDI.stop()
+            instrumentHost.stop()
+        }
         disabledEffects.remove(effect)
         effectBlendModes.removeValue(forKey: effect)
         if effect == .lines { renderer.clearTrailHistory() }
@@ -511,6 +589,151 @@ final class AppController: ObservableObject {
         sampleLines = updated
     }
 
+    /// Master on/off for one line. A disabled line stops sending notes, CC, and
+    /// clip triggers; re-enabling restarts its clips on the next bar.
+    func setSampleEnabled(id: UUID, enabled: Bool) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].isEnabled != enabled else { return }
+        sampleLines[index].isEnabled = enabled
+    }
+
+    /// Switches a line between a MIDI instrument, an audio clip, and a hosted
+    /// Vital synth. A hosted instrument drives the same note pipeline as MIDI, so
+    /// note generation is forced on for it; clip destinations clear the MIDI
+    /// roles so the row cannot show a stale Lead/Modulation state.
+    func setSampleDestination(id: UUID, destination: SampleLineDestination) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].destination != destination else { return }
+        sampleLines[index].destination = destination
+        switch destination {
+        case .midi:
+            break
+        case .vital:
+            sampleLines[index].midiEnabled = true
+        case .loop, .oneShot:
+            sampleLines[index].midiEnabled = false
+            sampleLines[index].isLead = false
+            sampleLines[index].isModulationSource = false
+        }
+    }
+
+    // MARK: - Hosted Vital instrument
+
+    /// Opens the hosted Vital editor in a separate window for a line's slot.
+    func openVitalEditor(id: UUID) {
+        if let window = vitalWindows[id] {
+            window.makeKeyAndOrderFront(nil)
+            return
+        }
+        Task { @MainActor in
+            guard let viewController = await instrumentHost.requestEditor(forLine: id) else {
+                setStatusMessage("Vital is still loading. Try again in a moment.")
+                return
+            }
+            let window = NSWindow(contentViewController: viewController)
+            window.title = "Vital"
+            window.setContentSize(NSSize(width: 960, height: 640))
+            window.isReleasedWhenClosed = false
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            vitalWindows[id] = window
+        }
+    }
+
+    /// Captures the live sound from a line's Vital slot into a sidecar and stores
+    /// the reference on the line so the preset can restore it.
+    func captureVitalSound(id: UUID) {
+        guard let line = sampleLines.first(where: { $0.id == id }) else { return }
+        let name = promptForSoundName(suggested: line.instrument?.name ?? "Vital Sound")
+        Task { @MainActor in
+            guard let reference = await instrumentHost.captureState(forLine: id, name: name,
+                                                                    replacing: line.instrument) else {
+                setStatusMessage("Could not capture the Vital sound. Make sure Vital is loaded and try again.")
+                return
+            }
+            if let index = sampleLines.firstIndex(where: { $0.id == id }) {
+                sampleLines[index].instrument = reference
+            }
+            refreshVitalSounds()
+            setStatusMessage("Captured “\(reference.name)”.")
+        }
+    }
+
+    /// Assigns a previously captured sound (or nil) to a line. The slot reloads
+    /// it on the next reconfigure.
+    func setSampleInstrument(id: UUID, reference: AUStateReference?) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        sampleLines[index].instrument = reference
+    }
+
+    private func refreshVitalSounds() {
+        instrumentState.sounds = AUStateStore.catalog()
+    }
+
+    func clearVitalSound(id: UUID) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        sampleLines[index].instrument = nil
+    }
+
+    private func promptForSoundName(suggested: String) -> String {
+        let alert = NSAlert()
+        alert.messageText = "Name this Vital sound"
+        alert.informativeText = "The captured state is saved with this name."
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
+        field.stringValue = suggested
+        alert.accessoryView = field
+        alert.addButton(withTitle: "Capture")
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return suggested }
+        let name = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? suggested : name
+    }
+
+    /// Imports an audio file for a loop or one-shot line. The file is referenced
+    /// in place (bookmark + path), not copied, so presets stay small; moving the
+    /// preset to another machine requires re-importing its audio.
+    func importAudioClip(id: UUID) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.audio]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.message = "Choose a WAV or AIFF loop or one-shot"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        sampleLines[index].clip = AudioClipReference(fileName: url.lastPathComponent,
+                                                     path: url.path,
+                                                     bookmark: AudioClipReference.bookmark(for: url))
+    }
+
+    func clearAudioClip(id: UUID) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
+        sampleLines[index].clip = nil
+    }
+
+    func setClipSourceBPM(id: UUID, bpm: Double) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].clip != nil else { return }
+        sampleLines[index].clip?.sourceBPM = min(240, max(30, bpm))
+    }
+
+    func setClipBeats(id: UUID, beats: Double) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].clip != nil else { return }
+        sampleLines[index].clip?.beats = min(64, max(0.25, beats))
+    }
+
+    func setClipLevel(id: UUID, level: Double) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].clip != nil else { return }
+        sampleLines[index].clip?.level = min(1, max(0, level))
+    }
+
+    func setClipStartMuted(id: UUID, muted: Bool) {
+        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
+              sampleLines[index].clip != nil else { return }
+        sampleLines[index].clip?.startMuted = muted
+    }
+
     /// Keeps every line's register inside MIDI's 0...127 range after the global
     /// root or scale changes.
     private func clampSampleOctaves() {
@@ -559,17 +782,13 @@ final class AppController: ObservableObject {
 
     /// Toggles one line's modulation role. Several lines can be modulation
     /// sources at once, each driving its own `modulationCC` on its own channel.
-    /// A modulation line does not generate notes.
+    ///
+    /// The line's note settings (octave, keys, rhythm, channel, …) are left
+    /// untouched; the MIDI layer already suppresses notes while the line is a
+    /// modulation source, so turning the role back off restores it exactly as it
+    /// was rather than leaving `midiEnabled` stuck off.
     func setSampleModulationSource(id: UUID, enabled: Bool) {
-        guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
-        var updated = sampleLines
-        updated[index].isModulationSource = enabled
-        if enabled {
-            updated[index].isLead = false
-            // A modulation line does not play notes; turn the toggle off so the
-            // row reflects that instead of showing stale state.
-            updated[index].midiEnabled = false
-        }
+        let updated = SampleLine.settingModulation(enabled, for: id, in: sampleLines)
         guard updated != sampleLines else { return }
         sampleLines = updated
     }
@@ -617,10 +836,40 @@ final class AppController: ObservableObject {
             setStatusMessage("Enter a preset name first.")
             return
         }
+        // Lock immediately so a second click cannot start a concurrent save while
+        // the Vital recapture below is awaiting.
+        isSavingPreset = true
+        // Recapture the live Vital sounds first so the saved preset reflects what
+        // is actually loaded rather than a stale capture.
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            await self.recaptureVitalSounds()
+            self.continueSavingPreset(name: trimmedName)
+        }
+    }
+
+    /// Refreshes every Vital line's captured sound from its live slot. A line
+    /// whose slot is not loaded (Vital unavailable or still loading) keeps its
+    /// existing reference.
+    private func recaptureVitalSounds() async {
+        for (index, line) in sampleLines.enumerated() where line.destination == .vital {
+            let name = line.instrument?.name ?? "Line \(index + 1) Vital"
+            guard let reference = await instrumentHost.captureState(forLine: line.id, name: name,
+                                                                    replacing: line.instrument) else {
+                continue
+            }
+            if let current = sampleLines.firstIndex(where: { $0.id == line.id }) {
+                sampleLines[current].instrument = reference
+            }
+        }
+        refreshVitalSounds()
+    }
+
+    private func continueSavingPreset(name: String) {
         applyEffectsToRenderer()
-        var preset = currentPreset(name: trimmedName)
+        var preset = currentPreset(name: name)
         if let index = presets.firstIndex(where: {
-            $0.name.compare(trimmedName, options: .caseInsensitive) == .orderedSame
+            $0.name.compare(name, options: .caseInsensitive) == .orderedSame
         }) {
             preset.id = presets[index].id
         }
@@ -628,9 +877,9 @@ final class AppController: ObservableObject {
         pendingPresetCaptureID = captureID
         isSavingPreset = true
         setStatusMessage("Capturing preview for “\(preset.name)”…")
-        renderer.captureNextFrame(id: captureID) { [weak self] imageData in
+        renderer.captureNextFrame(id: captureID) { [weak self] image in
             Task { @MainActor [weak self] in
-                self?.finishSavingPreset(preset, captureID: captureID, imageData: imageData)
+                self?.finishSavingPreset(preset, captureID: captureID, image: image)
             }
         }
         Task { @MainActor [weak self] in
@@ -643,11 +892,50 @@ final class AppController: ObservableObject {
         }
     }
 
-    private func finishSavingPreset(_ capturedPreset: EffectPreset, captureID: UUID, imageData: Data?) {
+    /// Composites the SwiftUI sampler overlay onto a captured frame, then
+    /// encodes JPEG. The overlay is a layer above the Metal view rather than
+    /// part of the drawable, so it has to be drawn here or it never reaches the
+    /// saved preview.
+    private func thumbnailJPEG(from image: CGImage) -> Data? {
+        let size = CGSize(width: image.width, height: image.height)
+        let overlay = SampleLineOverlay(
+            lines: sampleLines,
+            harmony: sampleHarmony,
+            showNotes: sampleShowNotes,
+            transposeMode: sampleTransposeMode,
+            visible: isEffectEnabled(.lineSampler),
+            state: samplerState
+        )
+        .frame(width: size.width, height: size.height)
+
+        let imageRenderer = ImageRenderer(content: overlay)
+        imageRenderer.scale = 1
+        imageRenderer.isOpaque = false
+
+        guard let context = CGContext(
+            data: nil,
+            width: image.width,
+            height: image.height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.draw(image, in: CGRect(origin: .zero, size: size))
+        if let overlayImage = imageRenderer.cgImage {
+            context.draw(overlayImage, in: CGRect(origin: .zero, size: size))
+        }
+        guard let composited = context.makeImage() else { return nil }
+        return NSBitmapImageRep(cgImage: composited).representation(
+            using: .jpeg, properties: [.compressionFactor: 0.82]
+        )
+    }
+
+    private func finishSavingPreset(_ capturedPreset: EffectPreset, captureID: UUID, image: CGImage?) {
         guard pendingPresetCaptureID == captureID else { return }
         pendingPresetCaptureID = nil
         isSavingPreset = false
-        guard let imageData else {
+        guard let image, let imageData = thumbnailJPEG(from: image) else {
             setStatusMessage("Could not capture the output frame. Preset was not saved.")
             return
         }
@@ -767,6 +1055,12 @@ final class AppController: ObservableObject {
         renderer.sampleHarmony = sampleHarmony
         lineMIDI.configure(lines: sampleLines, harmony: sampleHarmony, bpm: sampleBPM, threshold: sampleTriggerThreshold, quantize: sampleQuantize, transposeMode: sampleTransposeMode, portMode: sampleMIDIPortMode,
                            enabled: isSessionRunning && enabledEffects.contains(.lineSampler))
+        clipAudio.configure(lines: sampleLines,
+                            enabled: isSessionRunning && enabledEffects.contains(.lineSampler),
+                            sessionActive: isSessionRunning,
+                            quantize: sampleQuantize, masterVolume: sampleMasterVolume)
+        instrumentHost.configure(lines: sampleLines,
+                                 enabled: isSessionRunning && enabledEffects.contains(.lineSampler))
         renderer.sampleDirection = sampleDirection
         renderer.sampleSpeed = Float(sampleSpeed)
         renderer.sampleCount = sampleCount
@@ -867,12 +1161,17 @@ final class AppController: ObservableObject {
             particleBorderThreshold: particleBorderThreshold,
             clapExplosionSize: clapExplosionSize,
             clapExplosionOpacity: clapExplosionOpacity,
-            clapExplosionBlendMode: blendMode(for: .clapExplosions)
+            clapExplosionBlendMode: blendMode(for: .clapExplosions),
+            maxPeople: maxPeople,
+            collapsedEffects: collapsedEffects
         )
     }
 
     private func apply(_ preset: EffectPreset) {
         guard !isApplyingPreset else { return }
+        // Stop the MIDI note clock, but leave the shared audio engine running:
+        // hosted Vital instruments live in it and it must survive a preset
+        // switch. The reconfigure below releases the old preset's clips/slots.
         lineMIDI.stop()
         isApplyingPreset = true
         defer {
@@ -893,6 +1192,9 @@ final class AppController: ObservableObject {
             if !effects.contains(normalized) { effects.append(normalized) }
         }
         disabledEffects = Set((preset.disabledEffects ?? []).map {
+            $0 == .flowers ? .liveVideoFill : $0
+        }).intersection(activeEffects)
+        collapsedEffects = Set((preset.collapsedEffects ?? []).map {
             $0 == .flowers ? .liveVideoFill : $0
         }).intersection(activeEffects)
         if let savedModes = preset.effectBlendModes {
@@ -974,6 +1276,7 @@ final class AppController: ObservableObject {
         particleBorderThreshold = preset.particleBorderThreshold ?? 0.5
         clapExplosionSize = preset.clapExplosionSize ?? 0.5
         clapExplosionOpacity = preset.clapExplosionOpacity ?? 1.0
+        maxPeople = min(8, max(1, preset.maxPeople ?? 1))
     }
 
     private var defaultVideoAssetID: String {
@@ -1148,11 +1451,14 @@ final class AppController: ObservableObject {
             poseInferenceInProgress = true
             let detector = poseDetector
             let renderer = renderer
+            let maxPeople = maxPeople
             poseQueue.async { [weak self] in
                 do {
-                    renderer.updatePose(try detector.detect(pixelBuffer: frame.pixelBuffer, includeHands: detectHands))
+                    renderer.updatePose(try detector.detect(pixelBuffer: frame.pixelBuffer,
+                                                            includeHands: detectHands,
+                                                            maxPeople: maxPeople))
                 } catch {
-                    renderer.updatePose(nil)
+                    renderer.updatePose([])
                 }
                 Task { @MainActor in self?.poseInferenceInProgress = false }
             }

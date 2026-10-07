@@ -62,7 +62,7 @@ struct SampleLinePad: View {
 
     private func drawLine(_ a: CGPoint, _ b: CGPoint, line: SampleLine, label: String,
                           selected: Bool, context: inout GraphicsContext) {
-        let visible = line.visibility > 0.01
+        let visible = line.visibility > 0.01 && line.isEnabled
         let harmony = controller.sampleHarmony
         if !visible {
             // Hidden lines still need an editable presence on the pad; the
@@ -80,12 +80,34 @@ struct SampleLinePad: View {
             context.fill(Path(ellipseIn: CGRect(x: point.x - 5, y: point.y - 5, width: 10, height: 10)),
                          with: .color(.white.opacity(selected ? 1 : max(0.35, line.visibility))))
         }
-        if visible || selected {
-            context.draw(Text("\(label) A").font(.caption).foregroundColor(.white),
-                         at: CGPoint(x: a.x + 16, y: a.y - 10))
-            context.draw(Text("B").font(.caption).foregroundColor(.white),
-                         at: CGPoint(x: b.x + 12, y: b.y - 10))
+        if controller.sampleShowNotes {
+            // "Show additional info" also tags the line with its number at the
+            // start (A = lowest key), at the same weight as the note names.
+            drawLineNumber(label, a: a, b: b, visibility: line.visibility, context: &context)
         }
+    }
+
+    /// A small circle with the 1-based line number, placed just beyond the A
+    /// endpoint so it sits at the start without covering the endpoint handle.
+    /// Drawn at the line's own visibility, matching the note-name annotations.
+    private func drawLineNumber(_ label: String, a: CGPoint, b: CGPoint,
+                                visibility: Double, context: inout GraphicsContext) {
+        let alpha = min(1, max(0, visibility))
+        guard alpha > 0.01 else { return }
+        let dx = b.x - a.x, dy = b.y - a.y
+        let length = hypot(dx, dy)
+        let ux = length > 0.001 ? dx / length : 0
+        let uy = length > 0.001 ? dy / length : 0
+        let center = CGPoint(x: a.x - ux * 16, y: a.y - uy * 16)
+        let radius: CGFloat = 9
+        let circle = Path(ellipseIn: CGRect(x: center.x - radius, y: center.y - radius,
+                                            width: radius * 2, height: radius * 2))
+        context.fill(circle, with: .color(.black.opacity(alpha * 0.5)))
+        context.stroke(circle, with: .color(.white.opacity(alpha * 0.7)), lineWidth: 1.2)
+        context.draw(Text(label)
+                        .font(.system(size: 10, weight: .bold, design: .rounded))
+                        .foregroundColor(.white.opacity(alpha)),
+                     at: center)
     }
 
     /// One short segment per note position, colored by its live state.

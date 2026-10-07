@@ -152,6 +152,30 @@ final class SampleLineRoutingTests: XCTestCase {
         XCTAssertEqual(restored[0].triggerMode, .rhythm)
     }
 
+    func testModulationTogglePreservesNoteSettings() {
+        var line = SampleLine(ax: 0, ay: 0, bx: 1, by: 1)
+        line.midiEnabled = true
+        line.octave = 3
+        line.keyCount = 5
+        line.triggerMode = .singleShot
+
+        let on = SampleLine.settingModulation(true, for: line.id, in: [line])
+        XCTAssertTrue(on[0].isModulationSource)
+        XCTAssertFalse(on[0].isLead)
+        // The note settings survive the round trip, so turning modulation off
+        // does not strip the Octave/Keys controls or silence the line.
+        XCTAssertTrue(on[0].midiEnabled)
+        XCTAssertEqual(on[0].octave, 3)
+        XCTAssertEqual(on[0].keyCount, 5)
+        XCTAssertEqual(on[0].triggerMode, .singleShot)
+
+        let off = SampleLine.settingModulation(false, for: line.id, in: on)
+        XCTAssertFalse(off[0].isModulationSource)
+        XCTAssertTrue(off[0].midiEnabled)
+        XCTAssertEqual(off[0].octave, 3)
+        XCTAssertEqual(off[0].keyCount, 5)
+    }
+
     func testStableChannelsPreservesMultipleModulationSources() {
         var first = SampleLine(ax: 0, ay: 0, bx: 1, by: 1)
         var second = SampleLine(ax: 0, ay: 0.2, bx: 1, by: 1)

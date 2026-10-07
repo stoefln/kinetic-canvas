@@ -16,9 +16,16 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private var lines: [SampleLine] = []
     private var harmony = SampleHarmony()
     private var enabled = false
-    private var bpm = 120.0
+    /// Shared musical clock. BPM and bar lines come from here so the MIDI grid
+    /// and the clip audio engine stay aligned on one transport.
+    private let transport: MusicalTransport
     /// Called on `queue` whenever the sounding/blocked segment picture changes.
     var onStateChange: (@Sendable (SamplerVisualState) -> Void)?
+    /// Called on `queue` when a line with an audio destination gets a rising edge.
+    var onAudioTrigger: (@Sendable (LineAudioTrigger) -> Void)?
+    /// Called on `queue` for a line whose destination is a hosted instrument, so
+    /// its note/CC events go to the AU instead of a Core MIDI port.
+    var onInstrumentEvent: (@Sendable (LineInstrumentEvent) -> Void)?
     private var lastVisualState = SamplerVisualState()
     /// One bit per key; a multi-octave line can exceed 16 keys, so 64 bits.
     private var bitsets: [UUID: UInt64] = [:]
@@ -34,8 +41,11 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private var modulationValues: [UUID: UInt8] = [:]
     private var emptyFrames: [UUID: [Int: Int]] = [:]
     private var lastFrame: Double = 0
-    private var nextStep: Double = 0
-    private var stepIndex: Int64 = 0
+    /// Highest sixteenth-note index already processed; `.min` means the grid has
+    /// not started yet.
+    private var lastStepIndex: Int64 = .min
+    /// Last reported occupancy per audio line, for rising-edge detection.
+    private var occupiedLines: [UUID: Bool] = [:]
     private var active: [UUID: [Int: Voice]] = [:]
     /// Note On/Off triples collected during one callback, grouped by destination
     /// port so each is sent in a single `MIDIReceived` call.
@@ -43,9 +53,16 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private static let maxPacketBytes = 256
     /// Stride of the per-line occupancy buffer; 4 chromatic octaves is 48 keys.
     static let maxSections = 64
-    private struct Voice { let pitch: Int; let channel: UInt8; let offAt: Double }
+    private struct Voice {
+        let pitch: Int
+        let channel: UInt8
+        let offAt: Double
+        let lineID: UUID
+        let destination: SampleLineDestination
+    }
 
-    init() {
+    init(transport: MusicalTransport = MusicalTransport()) {
+        self.transport = transport
         MIDIClientCreate("Kinetic Canvas" as CFString, nil, nil, &client)
         if client != 0 { MIDISourceCreate(client, "Kinetic Canvas Line Sampler" as CFString, &source) }
     }
@@ -74,13 +91,10 @@ final class LineSamplerMIDI: @unchecked Sendable {
                 portMode = newPortMode
             }
             let old = Dictionary(uniqueKeysWithValues: lines.map { ($0.id, $0) })
-            let now = ProcessInfo.processInfo.systemUptime
-            let oldDuration = 15 / bpm
-            let clampedBPM = min(240, max(30, newBPM))
-            if clampedBPM != bpm && nextStep > 0 {
-                nextStep = now + (nextStep - now) * (15 / clampedBPM) / oldDuration
-            }
-            bpm = clampedBPM
+            // Tempo changes are queued on the shared transport and committed on
+            // the next bar line, so the MIDI grid and the audio loops change
+            // duration together without a mid-bar jump.
+            transport.requestBPM(newBPM, at: ProcessInfo.processInfo.systemUptime)
             // Root and scale are global, so changing either changes every line's
             // pitches. Release existing voices instead of letting stale pitches ring.
             if newHarmony.root != harmony.root || newHarmony.scale != harmony.scale {
@@ -89,7 +103,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
             harmony = newHarmony
             for (id, voices) in active {
                 guard let prior = old[id], let next = newLines.first(where: { $0.id == id }),
-                      newEnabled, next.midiEnabled, !next.isModulationSource,
+                      newEnabled, next.isEnabled, next.midiEnabled, !next.isModulationSource,
                       prior.octave == next.octave,
                       prior.keyCount == next.keyCount,
                       prior.isMonophonic == next.isMonophonic,
@@ -99,22 +113,20 @@ final class LineSamplerMIDI: @unchecked Sendable {
             }
             lines = Array(newLines.prefix(16))
             enabled = newEnabled
-            if !enabled || !lines.contains(where: \.midiEnabled) {
+            if !enabled || !lines.contains(where: \.needsOccupancy) {
                 stopAll()
-                nextStep = 0
-                stepIndex = 0
+                lastStepIndex = .min
                 timer?.cancel()
                 timer = nil
-            } else if nextStep == 0 {
-                nextStep = now
-                stepIndex = 0
-                if timer == nil {
-                    let source = DispatchSource.makeTimerSource(queue: queue)
-                    source.schedule(deadline: .now(), repeating: .milliseconds(5), leeway: .milliseconds(2))
-                    source.setEventHandler { [weak self] in self?.tick() }
-                    timer = source
-                    source.resume()
-                }
+            } else if timer == nil {
+                // Seed one step behind so the first tick fires immediately,
+                // matching the old "play at step 0" behavior.
+                lastStepIndex = transport.stepIndex(at: ProcessInfo.processInfo.systemUptime) - 1
+                let source = DispatchSource.makeTimerSource(queue: queue)
+                source.schedule(deadline: .now(), repeating: .milliseconds(5), leeway: .milliseconds(2))
+                source.setEventHandler { [weak self] in self?.tick() }
+                timer = source
+                source.resume()
             }
             // Flush any Note Offs before ports are torn down, then send the
             // current volume to ports that were just created.
@@ -154,6 +166,23 @@ final class LineSamplerMIDI: @unchecked Sendable {
             levels = normalized
             lastFrame = ProcessInfo.processInfo.systemUptime
             emitModulation()
+            emitAudioTriggers(stabilized)
+        }
+    }
+
+    /// Turns a line's stabilized occupancy into a rising edge for loop and
+    /// one-shot destinations. A continuously occupied line triggers once, so a
+    /// noisy area does not toggle a loop on every frame.
+    private func emitAudioTriggers(_ stabilized: [UUID: UInt64]) {
+        guard let onAudioTrigger else { return }
+        for line in lines where line.isEnabled && line.destination != .midi {
+            let occupied = (stabilized[line.id] ?? 0) != 0
+            let wasOccupied = occupiedLines[line.id] ?? false
+            occupiedLines[line.id] = occupied
+            guard occupied, !wasOccupied else { continue }
+            onAudioTrigger(LineAudioTrigger(lineID: line.id,
+                                            destination: line.destination,
+                                            quantize: quantize))
         }
     }
 
@@ -176,15 +205,16 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private func emitModulation() {
         guard enabled else { return }
         var changed = false
-        for line in lines where line.isModulationSource {
+        for line in lines where line.isEnabled && line.isModulationSource {
             guard (0..<16).contains(line.midiChannel),
                   let lineLevels = levels[line.id],
                   let value = Self.modulationValue(levels: lineLevels, threshold: triggerThreshold)
             else { continue }
             guard value != modulationValues[line.id] else { continue }
             modulationValues[line.id] = value
-            enqueueCC(channel: UInt8(line.midiChannel),
-                      controller: UInt8(min(127, max(0, line.modulationCC))), value: value)
+            routeCC(lineID: line.id, destination: line.destination,
+                    channel: UInt8(line.midiChannel),
+                    controller: UInt8(min(127, max(0, line.modulationCC))), value: value)
             changed = true
         }
         if changed { flushMessages() }
@@ -246,8 +276,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
             // earlier Note Off). Sweep every pitch on every channel so quitting
             // never leaves a note ringing.
             sendAllNotesOff()
-            nextStep = 0
-            stepIndex = 0
+            lastStepIndex = .min
             timer?.cancel()
             timer = nil
             flushMessages()
@@ -281,6 +310,14 @@ final class LineSamplerMIDI: @unchecked Sendable {
         case .perLine:
             for (channel, port) in channelSources { queueAllNotesOff(channel: channel, to: port) }
         }
+        // Hosted instrument lines are not on a Core MIDI port; clear them too.
+        if let onInstrumentEvent {
+            for line in lines where line.destination == .vital {
+                let channel = UInt8(min(15, max(0, line.midiChannel)))
+                onInstrumentEvent(LineInstrumentEvent(lineID: line.id, status: 0xB0 | channel, data1: 123, data2: 0))
+                onInstrumentEvent(LineInstrumentEvent(lineID: line.id, status: 0xB0 | channel, data1: 120, data2: 0))
+            }
+        }
     }
 
     /// Diagnostic: sounds one note at a fixed velocity on channel 1 so a host's
@@ -309,30 +346,29 @@ final class LineSamplerMIDI: @unchecked Sendable {
 
     private func tick() {
         let now = ProcessInfo.processInfo.systemUptime
+        // Commit a queued tempo change on its bar line before reading the grid.
+        transport.commitPending(at: now)
         for (id, voices) in active {
             for (segment, voice) in voices where voice.offAt <= now { stop(id: id, segment: segment) }
         }
-        if enabled, nextStep > 0 {
+        if enabled {
             let fresh = lastFrame > 0 && now - lastFrame < 0.3
             if lastFrame > 0 && !fresh { stopAll() }
-            let duration = 15 / bpm
-            if now - nextStep > duration * 2 {
-                let skipped = Int64((now - nextStep) / duration)
-                stepIndex += skipped
-                nextStep += Double(skipped) * duration
-            }
-            let onGrid = now >= nextStep
+            let currentStep = transport.stepIndex(at: now)
+            let onGrid = currentStep > lastStepIndex
+            if onGrid { lastStepIndex = currentStep }
             let lead = leadDegree
             // Single-shot lines follow pixel presence continuously; with
             // quantization on they wait for the next 16th-note grid line.
             reconcileSingleShots(fresh: fresh, allowOnsets: !quantize || onGrid, leadDegree: lead)
             if onGrid {
-                for line in lines where line.midiEnabled && !line.isModulationSource && line.triggerMode == .rhythm {
-                    guard stepIndex % Int64(max(1, line.rhythm)) == 0 else { continue }
+                let secondsPerStep = transport.secondsPerStep
+                for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource && line.triggerMode == .rhythm {
+                    guard currentStep % Int64(max(1, line.rhythm)) == 0 else { continue }
                     guard (0..<16).contains(line.midiChannel) else { continue }
                     let channel = UInt8(line.midiChannel)
                     let mask = fresh ? (bitsets[line.id] ?? 0) : 0
-                    let gate = duration * Double(max(1, line.rhythm)) * 0.5
+                    let gate = secondsPerStep * Double(max(1, line.rhythm)) * 0.5
                     let pitches = effectivePitches(for: line, leadDegree: lead)
                     let segments: [Int]
                     if line.isMonophonic {
@@ -355,12 +391,13 @@ final class LineSamplerMIDI: @unchecked Sendable {
                         stop(id: line.id, segment: segment)
                         guard harmony.allows(pitches[segment], against: soundingPitches) else { continue }
                         let velocity = Self.velocity(forLevel: levels[line.id]?[segment] ?? 255)
-                        enqueue(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity)
-                        active[line.id, default: [:]][segment] = Voice(pitch: pitches[segment], channel: channel, offAt: now + gate)
+                        route(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity,
+                              lineID: line.id, destination: line.destination)
+                        active[line.id, default: [:]][segment] = Voice(pitch: pitches[segment], channel: channel,
+                                                                       offAt: now + gate, lineID: line.id,
+                                                                       destination: line.destination)
                     }
                 }
-                stepIndex += 1
-                nextStep += duration
             }
         }
         flushMessages()
@@ -372,7 +409,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// Releases always happen now; `allowOnsets` is false between grid lines
     /// when quantization is on.
     private func reconcileSingleShots(fresh: Bool, allowOnsets: Bool, leadDegree: Int) {
-        for line in lines where line.midiEnabled && !line.isModulationSource && line.triggerMode == .singleShot {
+        for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource && line.triggerMode == .singleShot {
             guard (0..<16).contains(line.midiChannel) else {
                 active[line.id]?.keys.forEach { stop(id: line.id, segment: $0) }
                 continue
@@ -403,9 +440,12 @@ final class LineSamplerMIDI: @unchecked Sendable {
                 guard active[line.id]?[segment] == nil else { continue }
                 guard harmony.allows(pitches[segment], against: soundingPitches) else { continue }
                 let velocity = Self.velocity(forLevel: levels[line.id]?[segment] ?? 255)
-                enqueue(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity)
+                route(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity,
+                      lineID: line.id, destination: line.destination)
                 // `.infinity` keeps the voice out of the timed gate release.
-                active[line.id, default: [:]][segment] = Voice(pitch: pitches[segment], channel: channel, offAt: .infinity)
+                active[line.id, default: [:]][segment] = Voice(pitch: pitches[segment], channel: channel,
+                                                               offAt: .infinity, lineID: line.id,
+                                                               destination: line.destination)
             }
         }
     }
@@ -418,7 +458,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// The lead line's active scale degree, or 0 when there is no lead or it is
     /// silent. The lowest occupied segment wins if several are lit.
     private var leadDegree: Int {
-        guard let lead = lines.first(where: { $0.isLead && $0.midiEnabled && !$0.isModulationSource }),
+        guard let lead = lines.first(where: { $0.isLead && $0.isEnabled && $0.midiEnabled && !$0.isModulationSource }),
               let mask = bitsets[lead.id], mask != 0 else { return 0 }
         let count = max(1, harmony.scale.offsets.count)
         // A multi-octave lead may be lit above the first octave; fold the key
@@ -446,7 +486,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         let lead = leadDegree
         let sounding = soundingPitches
         var blocked: [UUID: UInt64] = [:]
-        for line in lines where line.midiEnabled && !line.isModulationSource {
+        for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource {
             var mask: UInt64 = 0
             for (segment, pitch) in effectivePitches(for: line, leadDegree: lead).enumerated()
             where !harmony.allows(pitch, against: sounding) {
@@ -476,7 +516,8 @@ final class LineSamplerMIDI: @unchecked Sendable {
             voices.values.contains { $0.channel == voice.channel && $0.pitch == voice.pitch }
         }
         guard !stillHeld else { return }
-        enqueue(status: 0x80 | voice.channel, pitch: voice.pitch, velocity: 0)
+        route(status: 0x80 | voice.channel, pitch: voice.pitch, velocity: 0,
+              lineID: voice.lineID, destination: voice.destination)
     }
 
     private func stopAll() {
@@ -484,6 +525,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         bitsets.removeAll()
         levels.removeAll()
         emptyFrames.removeAll()
+        occupiedLines.removeAll()
         lastFrame = 0
         modulationValues.removeAll()
     }
@@ -530,11 +572,33 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private func reconcileChannelSources(for lines: [SampleLine]) {
         guard portMode == .perLine else { return }
         var needed = Set<UInt8>()
-        for line in lines where (0..<16).contains(line.midiChannel) {
+        for line in lines where line.destination == .midi && (0..<16).contains(line.midiChannel) {
             needed.insert(UInt8(line.midiChannel))
         }
         for channel in needed where channelSources[channel] == nil {
             _ = channelSource(channel)
+        }
+    }
+
+    /// Routes a note event to the hosted instrument for `.vital` lines, or to the
+    /// Core MIDI port otherwise.
+    private func route(status: UInt8, pitch: Int, velocity: UInt8,
+                       lineID: UUID, destination: SampleLineDestination) {
+        if destination == .vital, let onInstrumentEvent {
+            onInstrumentEvent(LineInstrumentEvent(lineID: lineID, status: status,
+                                                  data1: UInt8(clamping: pitch), data2: velocity))
+        } else {
+            enqueue(status: status, pitch: pitch, velocity: velocity)
+        }
+    }
+
+    private func routeCC(lineID: UUID, destination: SampleLineDestination, channel: UInt8,
+                         controller: UInt8, value: UInt8) {
+        if destination == .vital, let onInstrumentEvent {
+            onInstrumentEvent(LineInstrumentEvent(lineID: lineID, status: 0xB0 | (channel & 0x0F),
+                                                  data1: controller, data2: value))
+        } else {
+            enqueueCC(channel: channel, controller: controller, value: value)
         }
     }
 

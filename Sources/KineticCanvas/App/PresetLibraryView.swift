@@ -4,29 +4,51 @@ import SwiftUI
 struct PresetLibraryView: View {
     @ObservedObject var controller: AppController
 
-    /// Small enough that a narrow window shows one column, capped so a wide
-    /// window does not stretch a card into a banner.
-    private let columns = [GridItem(.adaptive(minimum: 132, maximum: 240), spacing: 12)]
+    /// Cards per row is capped at 4; extra width enlarges the cards rather than
+    /// adding columns. A narrow window falls back through 3, 2, and 1, so a tall
+    /// narrow window shows every preset in a single column.
+    private let maxColumns = 4
+    private let minimumCardWidth: CGFloat = 132
+    private let cardSpacing: CGFloat = 12
+    private let contentPadding: CGFloat = 16
+
+    /// Equal-width columns so cards always fill the row. The count comes from how
+    /// many minimum-width cards fit the window, clamped to `maxColumns`. The cards
+    /// themselves have no minimum so an ultra-narrow window never overflows.
+    private func columns(forWidth width: CGFloat) -> [GridItem] {
+        let contentWidth = max(0, width - 2 * contentPadding)
+        let fit = contentWidth > 0
+            ? Int((contentWidth + cardSpacing) / (minimumCardWidth + cardSpacing))
+            : 1
+        let count = max(1, min(maxColumns, fit))
+        return Array(repeating: GridItem(.flexible(minimum: 0), spacing: cardSpacing),
+                     count: count)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                header
+        // A root GeometryReader gives the true window width, so the column count
+        // recomputes on every resize; measuring inside the scroll view can go
+        // stale and leave a narrow window stuck at four cramped columns.
+        GeometryReader { proxy in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    header
 
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(controller.presets) { preset in
-                        PresetCard(
-                            preset: preset,
-                            thumbnailURL: controller.thumbnailURL(for: preset),
-                            isSelected: controller.selectedPresetID == preset.id
-                        ) {
-                            controller.selectPreset(id: preset.id)
+                    LazyVGrid(columns: columns(forWidth: proxy.size.width), spacing: cardSpacing) {
+                        ForEach(controller.presets) { preset in
+                            PresetCard(
+                                preset: preset,
+                                thumbnailURL: controller.thumbnailURL(for: preset),
+                                isSelected: controller.selectedPresetID == preset.id
+                            ) {
+                                controller.selectPreset(id: preset.id)
+                            }
                         }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(contentPadding)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(16)
         }
         .background {
             if !controller.controlPanelTransparent {
@@ -77,6 +99,9 @@ private struct PresetCard: View {
                     .overlay(alignment: .topTrailing) {
                         if isSelected { selectedBadge }
                     }
+                    .overlay(alignment: .topLeading) {
+                        if preset.hasAudioConfiguration { audioBadge }
+                    }
                     .clipped()
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -112,7 +137,36 @@ private struct PresetCard: View {
     }
 
     private var effectLabel: String {
-        "\(preset.effects.count) effect\(preset.effects.count == 1 ? "" : "s")"
+        var text = "\(preset.effects.count) effect\(preset.effects.count == 1 ? "" : "s")"
+        if preset.hasAudioConfiguration {
+            text += " · " + preset.audioDestinations.map(audioName).joined(separator: ", ")
+        }
+        return text
+    }
+
+    private func audioName(_ destination: SampleLineDestination) -> String {
+        switch destination {
+        case .loop: "Loop"
+        case .oneShot: "One-shot"
+        case .vital: "Vital"
+        case .midi: "MIDI"
+        }
+    }
+
+    /// Compact marker so a preset with audio stands out while scanning the grid.
+    private var audioBadge: some View {
+        HStack(spacing: 3) {
+            Image(systemName: "waveform")
+                .font(.system(size: 8, weight: .black))
+            Text("\(preset.audioDestinations.count)")
+                .font(.system(size: 8, weight: .black, design: .rounded))
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(Color.black.opacity(0.55), in: Capsule())
+        .padding(8)
+        .help("This preset has audio: \(preset.audioDestinations.map(audioName).joined(separator: ", "))")
     }
 
     private var selectedBadge: some View {

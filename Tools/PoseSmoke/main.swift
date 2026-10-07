@@ -23,7 +23,7 @@ CVPixelBufferUnlockBaseAddress(buffer, [])
 let detector = BodyPoseDetector()
 for iteration in 1...3 {
     let started = CACurrentMediaTime()
-    _ = try detector.detect(pixelBuffer: buffer, includeHands: true)
+    _ = try detector.detect(pixelBuffer: buffer, includeHands: true, maxPeople: 1)
     print(String(
         format: "Body + hand pose request %d completed in %.1f ms",
         iteration,

@@ -3,6 +3,9 @@ import SwiftUI
 struct ContentView: View {
     @Environment(\.openWindow) private var openWindow
     @ObservedObject var controller: AppController
+    /// Whether the global Settings panel is open. Persisted across launches so a
+    /// collapsed panel stays collapsed; not part of any effect preset.
+    @AppStorage("kineticcanvas.controlPanel.settingsExpanded.v1") private var settingsExpanded = false
 
     var body: some View {
         ScrollView(.vertical) {
@@ -44,49 +47,99 @@ struct ContentView: View {
 
             Divider()
 
-            AdaptiveFlowLayout(horizontalSpacing: 16) {
-                Picker("Camera", selection: Binding(
-                    get: { controller.selectedCameraID },
-                    set: { controller.selectCamera(id: $0) }
-                )) {
-                    ForEach(controller.cameras) { camera in
-                        Text(camera.name).tag(camera.id)
-                    }
-                }
-                .frame(width: 250)
-
-                Picker("Mode", selection: $controller.mode) {
-                    ForEach(DisplayMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .frame(width: 260)
-
-                Picker("Background", selection: $controller.background) {
-                    ForEach(BackgroundChoice.allCases) { background in
-                        Text(background.label).tag(background)
-                    }
-                }
-                .frame(width: 160)
-
-                Picker("RVM", selection: Binding(
-                    get: { controller.rvmProfile },
-                    set: { controller.selectRVMProfile($0) }
-                )) {
-                    ForEach(RVMProfile.allCases) { profile in
-                        Text(profile.label).tag(profile)
-                    }
-                }
-                .frame(width: 180)
-            }
-
-            MetricsRow(store: controller.metricsStore) { controller.resetMatting() }
+            settingsPanel
 
             Divider()
 
             effectsControls
         }
+    }
+
+    /// Collapsible panel holding the global capture and tracking settings. It
+    /// matches the effect-row chrome so the control panel reads as one stack.
+    private var settingsPanel: some View {
+        VStack(spacing: 0) {
+            Button {
+                settingsExpanded.toggle()
+            } label: {
+                HStack(spacing: 9) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(.callout, weight: .semibold))
+                        .rotationEffect(.degrees(settingsExpanded ? 90 : 0))
+                        .frame(width: 14, height: 14)
+                    Text("Settings")
+                        .font(.system(.headline, design: .rounded, weight: .bold))
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 9)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(Color.accentColor.opacity(0.16))
+            .accessibilityLabel(settingsExpanded ? "Collapse settings" : "Expand settings")
+            .help(settingsExpanded ? "Collapse settings" : "Expand settings")
+
+            if settingsExpanded {
+                Divider()
+                    .overlay(Color.accentColor.opacity(0.45))
+
+                VStack(alignment: .leading, spacing: 12) {
+                    AdaptiveFlowLayout(horizontalSpacing: 16) {
+                        Picker("Camera", selection: Binding(
+                            get: { controller.selectedCameraID },
+                            set: { controller.selectCamera(id: $0) }
+                        )) {
+                            ForEach(controller.cameras) { camera in
+                                Text(camera.name).tag(camera.id)
+                            }
+                        }
+                        .frame(width: 250)
+
+                        Picker("Mode", selection: $controller.mode) {
+                            ForEach(DisplayMode.allCases) { mode in
+                                Text(mode.label).tag(mode)
+                            }
+                        }
+                        .pickerStyle(.segmented)
+                        .frame(width: 260)
+
+                        Picker("Background", selection: $controller.background) {
+                            ForEach(BackgroundChoice.allCases) { background in
+                                Text(background.label).tag(background)
+                            }
+                        }
+                        .frame(width: 160)
+
+                        Picker("RVM", selection: Binding(
+                            get: { controller.rvmProfile },
+                            set: { controller.selectRVMProfile($0) }
+                        )) {
+                            ForEach(RVMProfile.allCases) { profile in
+                                Text(profile.label).tag(profile)
+                            }
+                        }
+                        .frame(width: 180)
+
+                        Stepper("Max people: \(controller.maxPeople)",
+                                value: $controller.maxPeople, in: 1...8)
+                            .frame(width: 170)
+                            .help("How many bodies pose tracking follows at once. 1 is fastest and most stable; higher values add a skeleton, mesh, and limb emitters per person.")
+                    }
+
+                    MetricsRow(store: controller.metricsStore) { controller.resetMatting() }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+            }
+        }
+        .background(Color.white.opacity(0.045))
+        .clipShape(RoundedRectangle(cornerRadius: 9))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9)
+                .stroke(Color.accentColor.opacity(0.42), lineWidth: 1)
+        }
+        .font(.system(.callout, design: .rounded))
     }
 
     private var effectsControls: some View {
@@ -147,73 +200,101 @@ struct ContentView: View {
     }
 
     private func effectRow(_ effect: EffectKind) -> some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 9) {
-                Text(effect.label)
-                    .font(.system(.headline, design: .rounded, weight: .bold))
-
-                Spacer()
-
-                Toggle("Enabled", isOn: Binding(
-                    get: { controller.isEffectEnabled(effect) },
-                    set: { controller.setEffectEnabled(effect, enabled: $0) }
-                ))
-                .toggleStyle(.switch)
-                .labelsHidden()
-                .controlSize(.small)
-                .accessibilityLabel("Enable \(effect.label)")
-                .help("Enable or disable \(effect.label)")
-
-                Picker("Blend", selection: Binding(
-                    get: { controller.blendMode(for: effect) },
-                    set: { controller.setBlendMode($0, for: effect) }
-                )) {
-                    ForEach(OverlayBlendMode.allCases) { mode in
-                        Text(mode.label).tag(mode)
+        let collapsed = controller.collapsedEffects.contains(effect)
+        return VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 9) {
+                    Button {
+                        controller.setEffectCollapsed(effect, collapsed: !collapsed)
+                    } label: {
+                        Image(systemName: "chevron.right")
+                            .font(.system(.callout, weight: .semibold))
+                            .rotationEffect(.degrees(collapsed ? 0 : 90))
+                            .frame(width: 14, height: 14)
+                            .contentShape(Rectangle())
                     }
-                }
-                .labelsHidden()
-                .frame(width: 145)
-                .accessibilityLabel("Blend mode for \(effect.label)")
-                .help("Blend mode for \(effect.label)")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(collapsed ? "Expand \(effect.label)" : "Collapse \(effect.label)")
+                    .help(collapsed ? "Expand \(effect.label)" : "Collapse \(effect.label)")
 
-                Button {
-                    controller.moveEffect(effect, by: -1)
-                } label: {
-                    Image(systemName: "arrow.up")
-                }
-                .buttonStyle(.plain)
-                .disabled(controller.activeEffects.first == effect)
-                .help("Move earlier")
+                    Text(effect.label)
+                        .font(.system(.headline, design: .rounded, weight: .bold))
 
-                Button {
-                    controller.moveEffect(effect, by: 1)
-                } label: {
-                    Image(systemName: "arrow.down")
-                }
-                .buttonStyle(.plain)
-                .disabled(controller.activeEffects.last == effect)
-                .help("Move later")
+                    Spacer(minLength: 0)
 
-                Button {
-                    controller.removeEffect(effect)
-                } label: {
-                    Image(systemName: "xmark.circle.fill")
+                    Button {
+                        controller.moveEffect(effect, by: -1)
+                    } label: {
+                        Image(systemName: "arrow.up")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(controller.activeEffects.first == effect)
+                    .help("Move earlier")
+
+                    Button {
+                        controller.moveEffect(effect, by: 1)
+                    } label: {
+                        Image(systemName: "arrow.down")
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(controller.activeEffects.last == effect)
+                    .help("Move later")
                 }
-                .buttonStyle(.plain)
-                .help("Remove effect")
+
+                HStack(spacing: 9) {
+                    Button {
+                        controller.setEffectEnabled(effect, enabled: !controller.isEffectEnabled(effect))
+                    } label: {
+                        Image(systemName: controller.isEffectEnabled(effect)
+                              ? "checkmark.circle.fill" : "circle")
+                            .font(.system(.callout))
+                            .foregroundStyle(controller.isEffectEnabled(effect)
+                                             ? Color.primary : Color.secondary)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(controller.isEffectEnabled(effect)
+                                        ? "Disable \(effect.label)" : "Enable \(effect.label)")
+                    .help("Enable or disable \(effect.label)")
+
+                    Picker("Blend", selection: Binding(
+                        get: { controller.blendMode(for: effect) },
+                        set: { controller.setBlendMode($0, for: effect) }
+                    )) {
+                        ForEach(OverlayBlendMode.allCases) { mode in
+                            Text(mode.label).tag(mode)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 145)
+                    .accessibilityLabel("Blend mode for \(effect.label)")
+                    .help("Blend mode for \(effect.label)")
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        controller.removeEffect(effect)
+                    } label: {
+                        Image(systemName: "trash")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove effect")
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(Color.accentColor.opacity(0.16))
 
-            Divider()
-                .overlay(Color.accentColor.opacity(0.45))
+            if !collapsed {
+                Divider()
+                    .overlay(Color.accentColor.opacity(0.45))
 
-            effectParameters(effect)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(12)
-                .opacity(controller.isEffectEnabled(effect) ? 1 : 0.5)
+                effectParameters(effect)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                    .opacity(controller.isEffectEnabled(effect) ? 1 : 0.5)
+            }
         }
         .background(Color.white.opacity(0.045))
         .clipShape(RoundedRectangle(cornerRadius: 9))
@@ -345,26 +426,41 @@ struct ContentView: View {
                                 .foregroundStyle(.secondary)
                             Button("Clear all") { controller.sampleLines.removeAll() }
                                 .disabled(controller.sampleLines.isEmpty)
-                            Toggle("Show note names", isOn: $controller.sampleShowNotes)
                         }
                         ForEach($controller.sampleLines) { lineBinding in
                             let id = lineBinding.wrappedValue.id
                             let channel = lineBinding.wrappedValue.midiChannel
-                            SampleLineSettings(
+                            SampleLineSettingsRow(
                                 line: lineBinding,
                                 number: (controller.sampleLines.firstIndex(where: { $0.id == id }) ?? 0) + 1,
                                 harmony: controller.sampleHarmony,
                                 sharesChannel: channel >= 0
                                     && controller.sampleLines.filter { $0.midiChannel == channel }.count > 1,
+                                clipState: controller.clipState,
+                                instrumentState: controller.instrumentState,
+                                setEnabled: { controller.setSampleEnabled(id: id, enabled: $0) },
                                 setChannel: { controller.setSampleChannel(id: id, channel: $0) },
                                 setLead: { controller.setSampleLead(id: id, enabled: $0) },
                                 setModulation: { controller.setSampleModulationSource(id: id, enabled: $0) },
                                 setModulationCC: { controller.setSampleModulationCC(id: id, cc: $0) },
-                                testCC: { controller.sendTestCC(id: id) }
+                                testCC: { controller.sendTestCC(id: id) },
+                                setDestination: { controller.setSampleDestination(id: id, destination: $0) },
+                                importClip: { controller.importAudioClip(id: id) },
+                                clearClip: { controller.clearAudioClip(id: id) },
+                                setClipSourceBPM: { controller.setClipSourceBPM(id: id, bpm: $0) },
+                                setClipBeats: { controller.setClipBeats(id: id, beats: $0) },
+                                setClipLevel: { controller.setClipLevel(id: id, level: $0) },
+                                setClipStartMuted: { controller.setClipStartMuted(id: id, muted: $0) },
+                                openInstrument: { controller.openVitalEditor(id: id) },
+                                captureInstrument: { controller.captureVitalSound(id: id) },
+                                clearInstrument: { controller.clearVitalSound(id: id) },
+                                setInstrument: { controller.setSampleInstrument(id: id, reference: $0) }
                             ) {
                                 controller.deleteSampleLine(id: id)
                             }
                         }
+                        Toggle("Show additional info", isOn: $controller.sampleShowNotes)
+                            .help("Show note names on each line and its number in a circle at the start (lowest key)")
                     }
                 }
 
@@ -625,6 +721,65 @@ struct ContentView: View {
         Binding(
             get: { controller.sampleBPM },
             set: { controller.sampleBPM = $0.isFinite ? min(240, max(30, $0)) : 120 }
+        )
+    }
+}
+
+/// Observes the clip state store so a single line's loop/one-shot status badge
+/// updates without rebuilding the whole control panel.
+private struct SampleLineSettingsRow: View {
+    @Binding var line: SampleLine
+    let number: Int
+    let harmony: SampleHarmony
+    let sharesChannel: Bool
+    @ObservedObject var clipState: ClipStateStore
+    @ObservedObject var instrumentState: InstrumentStateStore
+    let setEnabled: (Bool) -> Void
+    let setChannel: (Int) -> Void
+    let setLead: (Bool) -> Void
+    let setModulation: (Bool) -> Void
+    let setModulationCC: (Int) -> Void
+    let testCC: () -> Void
+    let setDestination: (SampleLineDestination) -> Void
+    let importClip: () -> Void
+    let clearClip: () -> Void
+    let setClipSourceBPM: (Double) -> Void
+    let setClipBeats: (Double) -> Void
+    let setClipLevel: (Double) -> Void
+    let setClipStartMuted: (Bool) -> Void
+    let openInstrument: () -> Void
+    let captureInstrument: () -> Void
+    let clearInstrument: () -> Void
+    let setInstrument: (AUStateReference?) -> Void
+    let delete: () -> Void
+
+    var body: some View {
+        SampleLineSettings(
+            line: $line,
+            number: number,
+            harmony: harmony,
+            sharesChannel: sharesChannel,
+            clipState: clipState.states[line.id] ?? .empty,
+            instrumentStatus: instrumentState.statuses[line.id],
+            savedSounds: instrumentState.sounds,
+            setEnabled: setEnabled,
+            setChannel: setChannel,
+            setLead: setLead,
+            setModulation: setModulation,
+            setModulationCC: setModulationCC,
+            testCC: testCC,
+            setDestination: setDestination,
+            importClip: importClip,
+            clearClip: clearClip,
+            setClipSourceBPM: setClipSourceBPM,
+            setClipBeats: setClipBeats,
+            setClipLevel: setClipLevel,
+            setClipStartMuted: setClipStartMuted,
+            openInstrument: openInstrument,
+            captureInstrument: captureInstrument,
+            clearInstrument: clearInstrument,
+            setInstrument: setInstrument,
+            delete: delete
         )
     }
 }

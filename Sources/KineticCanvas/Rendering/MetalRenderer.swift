@@ -112,8 +112,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             if !clapExplosionsEnabled {
                 lock.lock()
                 pendingClaps.removeAll()
-                handsTouching = false
-                lastHandsSeenAt = 0
+                clapStates.removeAll()
                 lock.unlock()
                 explosions.forEach { $0.stop() }
                 explosions.removeAll()
@@ -152,7 +151,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var lastSnapshotTime: CFTimeInterval = 0
     private var videoFillURLs: [String: URL] = [:]
     private var videoFillPlayers: [String: VideoFillPlayer] = [:]
-    private var latestPose: BodyPose?
+    private var latestPoses: [BodyPose] = []
     private var poseUpdatedAt: CFTimeInterval = 0
     private var particles: [Particle] = []
     private var particleColorTexture: MTLTexture?
@@ -163,12 +162,16 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var lastParticleUpdate: CFTimeInterval = 0
     private var particleEmissionCarry: Float = 0
     private var randomState: UInt32 = 0xC0FFEE
-    private var poseVelocities: [PoseJoint: SIMD2<Float>] = [:]
+    private var poseVelocitiesByID: [Int: [PoseJoint: SIMD2<Float>]] = [:]
     private var particleBorderEmitters: [ParticleBorderEmitter] = []
     private var pendingClaps: [SIMD2<Float>] = []
-    private var handsTouching = false
-    private var lastHandsSeenAt: CFTimeInterval = 0
-    private var lastClapAt: CFTimeInterval = 0
+    /// Per-person clap contact state, keyed by the detector's stable track id.
+    private struct ClapState {
+        var touching = false
+        var lastSeenAt: CFTimeInterval = 0
+        var lastClapAt: CFTimeInterval = 0
+    }
+    private var clapStates: [Int: ClapState] = [:]
     private var explosions: [ClapExplosionPlayer] = []
     private var nextExplosionSegment = 0
     private var explosionURL: URL?
@@ -1117,52 +1120,75 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
     }
 
-    func updatePose(_ pose: BodyPose?) {
+    func updatePose(_ poses: [BodyPose]) {
         lock.lock()
         let now = CACurrentMediaTime()
-        if clapExplosionsEnabled, let pose, pose.handCenters.count == 2 {
-            lastHandsSeenAt = now
-            let first = pose.handCenters[0]
-            let second = pose.handCenters[1]
-            let separation = simd_length(SIMD2(
-                (first.x - second.x) * pose.sourceAspect,
-                first.y - second.y
-            ))
-            if separation < 0.12, !handsTouching, now - lastClapAt > 0.3 {
-                pendingClaps.append((first + second) * 0.5)
-                handsTouching = true
-                lastClapAt = now
-            } else if separation > 0.18 {
-                handsTouching = false
+        if clapExplosionsEnabled {
+            var seenIDs = Set<Int>()
+            for pose in poses {
+                seenIDs.insert(pose.id)
+                var state = clapStates[pose.id] ?? ClapState()
+                if pose.handCenters.count == 2 {
+                    state.lastSeenAt = now
+                    let first = pose.handCenters[0]
+                    let second = pose.handCenters[1]
+                    let separation = simd_length(SIMD2(
+                        (first.x - second.x) * pose.sourceAspect,
+                        first.y - second.y
+                    ))
+                    if separation < 0.12, !state.touching, now - state.lastClapAt > 0.3 {
+                        pendingClaps.append((first + second) * 0.5)
+                        state.touching = true
+                        state.lastClapAt = now
+                    } else if separation > 0.18 {
+                        state.touching = false
+                    }
+                } else if now - state.lastSeenAt > 0.35 {
+                    state.touching = false
+                }
+                clapStates[pose.id] = state
             }
-        } else if now - lastHandsSeenAt > 0.35 {
-            handsTouching = false
+            // Release contact for bodies that left the frame, and bound the
+            // dictionary so a stream of transient track ids cannot accumulate.
+            let staleIDs = clapStates.compactMap { id, state -> Int? in
+                !seenIDs.contains(id) && state.touching && now - state.lastSeenAt > 0.35 ? id : nil
+            }
+            for id in staleIDs { clapStates[id]?.touching = false }
+            if clapStates.count > 16 {
+                clapStates = clapStates.filter { seenIDs.contains($0.key) || now - $0.value.lastSeenAt <= 2 }
+            }
         }
-        if let pose, let previous = latestPose, poseUpdatedAt > 0 {
+        if !poses.isEmpty, poseUpdatedAt > 0 {
             let delta = Float(max(0.001, now - poseUpdatedAt))
-            var nextVelocities: [PoseJoint: SIMD2<Float>] = [:]
-            for (joint, point) in pose.points {
-                guard let previousPoint = previous.points[joint] else { continue }
-                let measured = (point.position - previousPoint.position) / delta
-                nextVelocities[joint] = (poseVelocities[joint] ?? measured) * 0.45 + measured * 0.55
+            var previousByID: [Int: BodyPose] = [:]
+            for pose in latestPoses { previousByID[pose.id] = pose }
+            var nextVelocities: [Int: [PoseJoint: SIMD2<Float>]] = [:]
+            for pose in poses {
+                guard let previous = previousByID[pose.id] else { continue }
+                var velocities: [PoseJoint: SIMD2<Float>] = [:]
+                for (joint, point) in pose.points {
+                    guard let previousPoint = previous.points[joint] else { continue }
+                    let measured = (point.position - previousPoint.position) / delta
+                    velocities[joint] = (poseVelocitiesByID[pose.id]?[joint] ?? measured) * 0.45 + measured * 0.55
+                }
+                nextVelocities[pose.id] = velocities
             }
-            poseVelocities = nextVelocities
+            poseVelocitiesByID = nextVelocities
         } else {
-            poseVelocities.removeAll(keepingCapacity: true)
+            poseVelocitiesByID.removeAll(keepingCapacity: true)
         }
-        latestPose = pose
+        latestPoses = poses
         poseUpdatedAt = now
         lock.unlock()
     }
 
     func clearPose() {
         lock.lock()
-        latestPose = nil
+        latestPoses.removeAll(keepingCapacity: true)
         poseUpdatedAt = 0
-        poseVelocities.removeAll(keepingCapacity: true)
+        poseVelocitiesByID.removeAll(keepingCapacity: true)
         pendingClaps.removeAll()
-        handsTouching = false
-        lastHandsSeenAt = 0
+        clapStates.removeAll(keepingCapacity: true)
         lock.unlock()
         particles.removeAll(keepingCapacity: true)
         lastParticleUpdate = 0
@@ -1181,7 +1207,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         DispatchQueue.main.async { [weak self] in self?.view?.setNeedsDisplay(self?.view?.bounds ?? .zero) }
     }
 
-    func captureNextFrame(id: UUID, completion: @escaping (Data?) -> Void) {
+    func captureNextFrame(id: UUID, completion: @escaping (CGImage?) -> Void) {
         lock.lock()
         pendingFrameCapture = FrameCaptureRequest(id: id, completion: completion)
         lock.unlock()
@@ -1238,8 +1264,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             && displayMode.rawValue >= DisplayMode.foreground.rawValue
             && (lastSnapshotTime == 0 || now - lastSnapshotTime >= trailSnapshotInterval)
         if shouldCaptureSignal { lastSnapshotTime = now }
-        let pose = now - poseUpdatedAt <= 0.6 ? latestPose : nil
-        let currentPoseVelocities = poseVelocities
+        let poses = now - poseUpdatedAt <= 0.6 ? latestPoses : []
+        let currentPoseVelocitiesByID = poseVelocitiesByID
         let currentParticleBorderEmitters = particleBorderEmitters
         lock.unlock()
 
@@ -1343,18 +1369,18 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         )
 
         let skeletonVertices = skeletonEnabled
-            ? makeSkeletonVertices(pose: pose, viewAspect: params.viewAspect)
+            ? makeSkeletonVertices(poses: poses, viewAspect: params.viewAspect)
             : []
         let linesVertices = linesEnabled
             ? makeLinesVertices(
-                pose: pose,
+                poses: poses,
                 viewSize: SIMD2(Float(drawable.texture.width), Float(drawable.texture.height))
             )
             : []
         let particleVertices = particlesEnabled
             ? updateParticles(
-                pose: pose,
-                poseVelocities: currentPoseVelocities,
+                poses: poses,
+                poseVelocitiesByID: currentPoseVelocitiesByID,
                 borderEmitters: currentParticleBorderEmitters,
                 sourceAspect: Float(CVPixelBufferGetWidth(frame.result.alpha))
                     / Float(CVPixelBufferGetHeight(frame.result.alpha)),
@@ -1493,7 +1519,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                         frameCapture.completion(nil)
                         return
                     }
-                    frameCapture.completion(Self.jpegData(from: imageBuffer))
+                    frameCapture.completion(Self.cgImage(from: imageBuffer))
                 }
             } else {
                 frameCapture.completion(nil)
@@ -1538,26 +1564,26 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         return ThumbnailBuffer(buffer: buffer, width: width, height: height, bytesPerRow: bytesPerRow)
     }
 
-    private static func jpegData(from thumbnail: ThumbnailBuffer) -> Data? {
+    /// Wraps the downsampled frame in a CGImage. The app layer composites the
+    /// SwiftUI sampler overlay on top before encoding, because that overlay is
+    /// not part of the Metal drawable.
+    private static func cgImage(from thumbnail: ThumbnailBuffer) -> CGImage? {
         let bytes = Data(bytes: thumbnail.buffer.contents(), count: thumbnail.bytesPerRow * thumbnail.height)
-        guard let provider = CGDataProvider(data: bytes as CFData),
-              let image = CGImage(
-                width: thumbnail.width,
-                height: thumbnail.height,
-                bitsPerComponent: 8,
-                bitsPerPixel: 32,
-                bytesPerRow: thumbnail.bytesPerRow,
-                space: CGColorSpaceCreateDeviceRGB(),
-                bitmapInfo: CGBitmapInfo.byteOrder32Little.union(
-                    CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue)
-                ),
-                provider: provider,
-                decode: nil,
-                shouldInterpolate: true,
-                intent: .defaultIntent
-              ) else { return nil }
-        return NSBitmapImageRep(cgImage: image).representation(
-            using: .jpeg, properties: [.compressionFactor: 0.82]
+        guard let provider = CGDataProvider(data: bytes as CFData) else { return nil }
+        return CGImage(
+            width: thumbnail.width,
+            height: thumbnail.height,
+            bitsPerComponent: 8,
+            bitsPerPixel: 32,
+            bytesPerRow: thumbnail.bytesPerRow,
+            space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGBitmapInfo.byteOrder32Little.union(
+                CGBitmapInfo(rawValue: CGImageAlphaInfo.noneSkipFirst.rawValue)
+            ),
+            provider: provider,
+            decode: nil,
+            shouldInterpolate: true,
+            intent: .defaultIntent
         )
     }
 
@@ -1696,7 +1722,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private func encodeSampleOccupancy(lines: [SampleLine], source: MTLTexture,
                                        lineOutput: MTLTexture,
                                        commandBuffer: MTLCommandBuffer) {
-        guard lines.contains(where: { $0.midiEnabled || $0.isModulationSource }), let lineMIDI else { return }
+        guard lines.contains(where: { $0.needsOccupancy }), let lineMIDI else { return }
         occupancyLock.lock()
         let slot = occupancyBusy.indices.first(where: { !occupancyBusy[$0] && $0 < occupancyBuffers.count })
         if let slot { occupancyBusy[slot] = true }
@@ -1719,7 +1745,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             parameters[index] = OccupancyLine(
                 endpoints: SIMD4(Float(line.ax), Float(line.ay), Float(line.bx), Float(line.by)),
                 sections: sectionCount, thickness: sampleThickness,
-                enabled: (line.midiEnabled || line.isModulationSource) ? 1 : 0,
+                enabled: line.needsOccupancy ? 1 : 0,
                 useLineSource: line.samplesOtherLines ? 1 : 0)
         }
         let ids = lines.map(\.id)
@@ -2092,8 +2118,8 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         encoder.endEncoding()
     }
 
-    private func makeSkeletonVertices(pose: BodyPose?, viewAspect: Float) -> [OverlayVertex] {
-        guard let pose else { return [] }
+    private func makeSkeletonVertices(poses: [BodyPose], viewAspect: Float) -> [OverlayVertex] {
+        guard !poses.isEmpty else { return [] }
         let bones: [(PoseJoint, PoseJoint)] = [
             (.leftEar, .leftEye), (.leftEye, .nose), (.nose, .rightEye), (.rightEye, .rightEar),
             (.nose, .neck),
@@ -2104,48 +2130,46 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         ]
         let color = SIMD4<Float>(1, 1, 1, skeletonOpacity)
         var vertices: [OverlayVertex] = []
-        vertices.reserveCapacity(bones.count * 2)
-        for (startJoint, endJoint) in bones {
-            guard let start = viewPosition(startJoint, in: pose, viewAspect: viewAspect),
-                  let end = viewPosition(endJoint, in: pose, viewAspect: viewAspect) else { continue }
-            vertices.append(OverlayVertex(position: clipPosition(start), color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: clipPosition(end), color: color, pointSize: 1))
+        vertices.reserveCapacity(poses.count * bones.count * 2)
+        for pose in poses {
+            for (startJoint, endJoint) in bones {
+                guard let start = viewPosition(startJoint, in: pose, viewAspect: viewAspect),
+                      let end = viewPosition(endJoint, in: pose, viewAspect: viewAspect) else { continue }
+                vertices.append(OverlayVertex(position: clipPosition(start), color: color, pointSize: 1))
+                vertices.append(OverlayVertex(position: clipPosition(end), color: color, pointSize: 1))
+            }
         }
         return vertices
     }
 
-    private func makeLinesVertices(pose: BodyPose?, viewSize: SIMD2<Float>) -> [OverlayVertex] {
-        guard let pose else { return [] }
+    private func makeLinesVertices(poses: [BodyPose], viewSize: SIMD2<Float>) -> [OverlayVertex] {
+        guard !poses.isEmpty else { return [] }
         let viewAspect = viewSize.x / max(1, viewSize.y)
+        var vertices: [OverlayVertex] = []
+        for pose in poses {
+            appendLineMesh(for: pose, viewAspect: viewAspect, viewSize: viewSize, into: &vertices)
+        }
+        return vertices
+    }
+
+    /// Builds one person's nearest-neighbour mesh. Each body is meshed on its
+    /// own, so two people standing close never fuse into a single web.
+    private func appendLineMesh(
+        for pose: BodyPose,
+        viewAspect: Float,
+        viewSize: SIMD2<Float>,
+        into vertices: inout [OverlayVertex]
+    ) {
         let positions = PoseJoint.allCases.compactMap { joint -> SIMD2<Float>? in
             guard let point = pose.points[joint], point.confidence >= linesConfidence else { return nil }
             return viewPosition(point.position, sourceAspect: pose.sourceAspect, viewAspect: viewAspect)
         }
-        guard positions.count > 1 else { return [] }
+        guard positions.count > 1 else { return }
 
         let neighborCount = min(max(1, linesConnections), positions.count - 1)
         let color = SIMD4<Float>(1, 1, 1, linesOpacity)
         var edges = Set<UInt64>()
-        var vertices: [OverlayVertex] = []
-        vertices.reserveCapacity(positions.count * neighborCount * 6)
-
-        func appendQuad(from start: SIMD2<Float>, to end: SIMD2<Float>) {
-            let pixelDelta = (end - start) * viewSize
-            let length = simd_length(pixelDelta)
-            guard length > 0.01 else { return }
-            let normal = SIMD2(-pixelDelta.y, pixelDelta.x) / length
-            let offset = normal * (max(1, linesThickness) * 0.5) / viewSize
-            let startA = clipPosition(start + offset)
-            let startB = clipPosition(start - offset)
-            let endA = clipPosition(end + offset)
-            let endB = clipPosition(end - offset)
-            vertices.append(OverlayVertex(position: startA, color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: startB, color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: endA, color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: endA, color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: startB, color: color, pointSize: 1))
-            vertices.append(OverlayVertex(position: endB, color: color, pointSize: 1))
-        }
+        vertices.reserveCapacity(vertices.count + positions.count * neighborCount * 6)
 
         for startIndex in positions.indices {
             let start = positions[startIndex]
@@ -2164,15 +2188,39 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 let upper = max(startIndex, neighbor.index)
                 let edge = (UInt64(lower) << 32) | UInt64(upper)
                 guard edges.insert(edge).inserted else { continue }
-                appendQuad(from: start, to: positions[neighbor.index])
+                appendLineQuad(from: start, to: positions[neighbor.index],
+                               viewSize: viewSize, color: color, into: &vertices)
             }
         }
-        return vertices
+    }
+
+    private func appendLineQuad(
+        from start: SIMD2<Float>,
+        to end: SIMD2<Float>,
+        viewSize: SIMD2<Float>,
+        color: SIMD4<Float>,
+        into vertices: inout [OverlayVertex]
+    ) {
+        let pixelDelta = (end - start) * viewSize
+        let length = simd_length(pixelDelta)
+        guard length > 0.01 else { return }
+        let normal = SIMD2(-pixelDelta.y, pixelDelta.x) / length
+        let offset = normal * (max(1, linesThickness) * 0.5) / viewSize
+        let startA = clipPosition(start + offset)
+        let startB = clipPosition(start - offset)
+        let endA = clipPosition(end + offset)
+        let endB = clipPosition(end - offset)
+        vertices.append(OverlayVertex(position: startA, color: color, pointSize: 1))
+        vertices.append(OverlayVertex(position: startB, color: color, pointSize: 1))
+        vertices.append(OverlayVertex(position: endA, color: color, pointSize: 1))
+        vertices.append(OverlayVertex(position: endA, color: color, pointSize: 1))
+        vertices.append(OverlayVertex(position: startB, color: color, pointSize: 1))
+        vertices.append(OverlayVertex(position: endB, color: color, pointSize: 1))
     }
 
     private func updateParticles(
-        pose: BodyPose?,
-        poseVelocities: [PoseJoint: SIMD2<Float>],
+        poses: [BodyPose],
+        poseVelocitiesByID: [Int: [PoseJoint: SIMD2<Float>]],
         borderEmitters: [ParticleBorderEmitter],
         sourceAspect: Float,
         viewAspect: Float,
@@ -2203,12 +2251,15 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         }
         freeParticleColorSlots.append(contentsOf: expiredSlots)
 
-        if particleSpawnSource == .limbs, let pose {
-            let emitters = particleEmitters(
-                pose: pose,
-                poseVelocities: poseVelocities,
-                viewAspect: viewAspect
-            )
+        if particleSpawnSource == .limbs, !poses.isEmpty {
+            var emitters: [(position: SIMD2<Float>, parent: SIMD2<Float>, movementSpeed: Float, velocity: SIMD2<Float>)] = []
+            for pose in poses {
+                emitters += particleEmitters(
+                    pose: pose,
+                    poseVelocities: poseVelocitiesByID[pose.id] ?? [:],
+                    viewAspect: viewAspect
+                )
+            }
             particleEmissionCarry += max(0, particleRate) * dt
             let emissionCount = Int(particleEmissionCarry)
             particleEmissionCarry -= Float(emissionCount)
@@ -2783,7 +2834,7 @@ private struct Particle {
 
 private struct FrameCaptureRequest {
     let id: UUID
-    let completion: (Data?) -> Void
+    let completion: (CGImage?) -> Void
 }
 
 private struct ThumbnailBuffer {
