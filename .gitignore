@@ -7,7 +7,7 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 
-# Python model exporter
+# Python model exporter (RobustVideoMatting submodule) local artifacts
 Tools/RVMExport/.venv/
 Tools/RVMExport/rvm_mobilenetv3.pth
 __pycache__/
@@ -17,5 +17,9 @@ __pycache__/
 .DS_Store
 ._*
 
-*.mov
-*.mp4
+# Movie assets (*.mov, *.mp4, *.m4v) are stored with Git LFS, not ignored in
+# general — see .gitattributes and scripts/build-app.sh. These two source clips
+# are exceptions: they are larger than the GitHub LFS free tier (~1 GB), so they
+# are kept local-only instead of committed.
+Assets/liquids.mov
+Assets/fish.mov
