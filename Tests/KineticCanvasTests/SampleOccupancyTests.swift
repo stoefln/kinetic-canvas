@@ -45,6 +45,52 @@ final class SampleOccupancyTests: XCTestCase {
             levels: [UInt8](repeating: 255, count: 64), threshold: 0.2)), 64)
     }
 
+    func testControlSegmentMapsValueToScale() {
+        XCTAssertEqual(LineSamplerMIDI.controlSegment(forValue: 0), 0)
+        XCTAssertEqual(LineSamplerMIDI.controlSegment(forValue: 127), LineSamplerMIDI.maxSections - 1)
+        // Monotonic and always inside the value scale.
+        var previous = -1
+        for value in UInt8(0)...UInt8(127) {
+            let segment = LineSamplerMIDI.controlSegment(forValue: value)
+            XCTAssertGreaterThanOrEqual(segment, previous)
+            XCTAssertTrue((0..<LineSamplerMIDI.maxSections).contains(segment))
+            previous = segment
+        }
+        // The midpoint of the value scale reads near the middle segment.
+        XCTAssertEqual(LineSamplerMIDI.controlSegment(forValue: 64), LineSamplerMIDI.maxSections / 2)
+    }
+
+    func testArpPatternStepping() {
+        let candidates = [0, 1, 2, 3]
+        let up = (0..<8).map { LineSamplerMIDI.arpSegment(pattern: .up, counter: $0, candidates: candidates) }
+        XCTAssertEqual(up, [0, 1, 2, 3, 0, 1, 2, 3])
+
+        let down = (0..<6).map { LineSamplerMIDI.arpSegment(pattern: .down, counter: $0, candidates: candidates) }
+        XCTAssertEqual(down, [3, 2, 1, 0, 3, 2])
+
+        // Up-Down ping-pongs without repeating the endpoints.
+        let upDown = (0..<8).map { LineSamplerMIDI.arpSegment(pattern: .upDown, counter: $0, candidates: candidates) }
+        XCTAssertEqual(upDown, [0, 1, 2, 3, 2, 1, 0, 1])
+
+        // Non-contiguous lit segments are stepped as-is, not enumerated.
+        let sparse = [1, 4, 9]
+        let sparseUp = (0..<4).map { LineSamplerMIDI.arpSegment(pattern: .up, counter: $0, candidates: sparse) }
+        XCTAssertEqual(sparseUp, [1, 4, 9, 1])
+
+        // One lit segment holds under every pattern.
+        for counter in 0..<4 {
+            for pattern in SampleArpPattern.allCases where pattern != .random {
+                XCTAssertEqual(LineSamplerMIDI.arpSegment(pattern: pattern, counter: counter, candidates: [5]), 5)
+            }
+        }
+
+        // Random always lands on a lit segment.
+        for counter in 0..<20 {
+            XCTAssertTrue(candidates.contains(
+                LineSamplerMIDI.arpSegment(pattern: .random, counter: counter, candidates: candidates)))
+        }
+    }
+
     func testMonophonicSegmentPrefersHeldThenBrightest() {
         XCTAssertNil(LineSamplerMIDI.monophonicSegment(mask: 0, levels: nil, held: nil))
 

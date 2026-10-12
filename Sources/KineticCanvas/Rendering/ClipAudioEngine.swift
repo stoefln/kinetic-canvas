@@ -192,6 +192,8 @@ final class ClipAudioEngine: @unchecked Sendable {
                 publish()
             case .midi:
                 break
+            case .control:
+                break
             case .vital:
                 break
             }
@@ -534,6 +536,8 @@ final class ClipAudioEngine: @unchecked Sendable {
             case .oneShot:
                 states[id] = .ready
             case .midi:
+                states[id] = .empty
+            case .control:
                 states[id] = .empty
             case .vital:
                 states[id] = .empty

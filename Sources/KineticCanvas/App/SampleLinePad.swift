@@ -114,27 +114,38 @@ struct SampleLinePad: View {
     private func drawSegments(_ a: CGPoint, _ b: CGPoint, line: SampleLine,
                               harmony: SampleHarmony, width: CGFloat,
                               context: inout GraphicsContext) {
-        let count = harmony.resolvedKeyCount(line.keyCount)
+        let count = line.isControlLine ? LineSamplerMIDI.maxSections : harmony.resolvedKeyCount(line.keyCount)
         let dx = b.x - a.x, dy = b.y - a.y
         let length = max(1, hypot(dx, dy))
         let ux = dx / length, uy = dy / length
         let segmentLength = length / Double(count)
         let gap = min(max(segmentLength * 0.22, 2), 8)
         let inset = min(gap / 2, segmentLength * 0.4)
+        let controlSegment = samplerState.state.controlSegments[line.id]
         for index in 0..<count {
             let start = Double(index) * segmentLength + inset
             let end = Double(index + 1) * segmentLength - inset
             guard end > start else { continue }
-            let segmentState = harmony.segmentState(index: index, line: line, by: samplerState.state)
-            let opacity = harmony.segmentOpacity(segmentState, visibility: line.visibility)
+            let highlight: Bool
+            let opacity: Double
+            if line.isControlLine {
+                // A control line draws its whole CC value scale; exactly the
+                // bucket the current value maps to is highlighted.
+                highlight = index == controlSegment
+                opacity = highlight ? line.visibility : line.visibility * 0.3
+            } else {
+                let segmentState = harmony.segmentState(index: index, line: line, by: samplerState.state)
+                highlight = segmentState == .active
+                opacity = harmony.segmentOpacity(segmentState, visibility: line.visibility)
+            }
             guard opacity > 0.001 else { continue }
             var path = Path()
             path.move(to: CGPoint(x: a.x + ux * start, y: a.y + uy * start))
             path.addLine(to: CGPoint(x: a.x + ux * end, y: a.y + uy * end))
-            let lineWidth = segmentState == .active ? width + 1 : width
+            let lineWidth = highlight ? width + 1 : width
             context.stroke(path, with: .color(line.segmentColor.opacity(opacity)), lineWidth: lineWidth)
         }
-        guard controller.sampleShowNotes, segmentLength >= 33 else { return }
+        guard controller.sampleShowNotes, !line.isControlLine, segmentLength >= 33 else { return }
         let pitches = harmony.effectivePitches(octave: line.octave,
                                                keyCount: line.keyCount,
                                                leadDegree: samplerState.state.leadDegree,

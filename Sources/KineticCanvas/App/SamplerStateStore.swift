@@ -8,6 +8,9 @@ struct SamplerVisualState: Equatable, Sendable {
     /// One bit per key/segment, so a multi-octave line can hold more than 16.
     var activeMasks: [UUID: UInt64] = [:]
     var blockedMasks: [UUID: UInt64] = [:]
+    /// For each control line, the segment index its current CC value maps to, so
+    /// the overlay highlights exactly one bucket of its value scale.
+    var controlSegments: [UUID: Int] = [:]
     /// The lead line's active scale degree, or 0 when it is silent.
     var leadDegree = 0
 }
@@ -50,11 +53,11 @@ extension SampleHarmony {
 }
 
 extension SampleLine {
-    /// The lead line is tinted dark purple, modulation sources light green, and
+    /// The lead line is tinted dark purple, control lines light green, and
     /// every other line stays cyan.
     var segmentColor: Color {
         if isLead { return Color(red: 0.55, green: 0.16, blue: 0.78) }
-        if isModulationSource { return Color(red: 0.55, green: 0.95, blue: 0.5) }
+        if isControlLine { return Color(red: 0.55, green: 0.95, blue: 0.5) }
         return .cyan
     }
 }

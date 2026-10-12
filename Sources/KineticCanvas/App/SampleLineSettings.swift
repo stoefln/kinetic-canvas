@@ -16,7 +16,6 @@ struct SampleLineSettings: View {
     let setEnabled: (Bool) -> Void
     let setChannel: (Int) -> Void
     let setLead: (Bool) -> Void
-    let setModulation: (Bool) -> Void
     let setModulationCC: (Int) -> Void
     let testCC: () -> Void
     let setDestination: (SampleLineDestination) -> Void
@@ -100,13 +99,14 @@ struct SampleLineSettings: View {
             parts.append(clipState.label)
         }
         if line.isLead { parts.append("Lead") }
-        if line.isModulationSource { parts.append("Modulation CC \(line.modulationCC) · Ch \(line.midiChannel + 1)") }
-        if line.midiEnabled {
+        if line.isControlLine { parts.append("Control CC \(line.modulationCC) · Ch \(line.midiChannel + 1)") }
+        if line.midiEnabled && !line.isControlLine {
             parts.append(sharesChannel ? "Ch \(line.midiChannel + 1) (shared)" : "Ch \(line.midiChannel + 1)")
             parts.append(SampleLine.noteName(harmony.pitches(octave: line.octave)[0]))
             if line.keyCount != 0 { parts.append("\(harmony.resolvedKeyCount(line.keyCount)) keys") }
             if line.triggerMode == .singleShot { parts.append("Single Shot") }
-            if line.isMonophonic { parts.append("Mono") }
+            if line.triggerMode == .arpeggio { parts.append("Arp \(line.arpPattern.label) \(rhythmLabel(line.arpRate))") }
+            if line.isMonophonic && line.triggerMode != .arpeggio { parts.append("Mono") }
         }
         if line.visibility <= 0.01 { parts.append("Hidden") }
         if line.samplesOtherLines { parts.append("Samples lines") }
@@ -121,6 +121,8 @@ struct SampleLineSettings: View {
                 if line.destination == .vital {
                     instrumentControls
                 }
+            } else if line.isControlLine {
+                controlControls
             } else {
                 clipControls
             }
@@ -149,44 +151,57 @@ struct SampleLineSettings: View {
                     if line.triggerMode == .rhythm {
                         rhythmControl
                     }
+                    if line.triggerMode == .arpeggio {
+                        arpPatternControl
+                        arpSpeedControl
+                    }
                 }
                 Toggle("Lead instrument", isOn: Binding(get: { line.isLead }, set: { setLead($0) }))
                     .help("Transposes every other line by this line's active scale degree")
-                Toggle("Mono (one note)", isOn: $line.isMonophonic)
-                    .help("Sound at most one note at a time. A sounding segment is held while it stays lit; otherwise the brightest lit segment wins.")
-            }
-            Toggle("Modulation source", isOn: Binding(get: { line.isModulationSource }, set: { setModulation($0) }))
-                .help("Drive a MIDI CC from this line's lit position along A→B. Several lines can do this at once, each with its own CC; the line stops generating notes.")
-            if line.isModulationSource {
-                AdaptiveFlowLayout(horizontalSpacing: 10) {
-                    Picker("Channel", selection: channelBinding) {
-                        ForEach(0..<16, id: \.self) { channel in
-                            Text("Ch \(channel + 1)").tag(channel)
-                        }
-                    }
-                    .frame(width: 118)
-                    .help("Channel the modulation CC is sent on")
-                    HStack(spacing: 6) {
-                        Text("CC")
-                        TextField("CC", value: modulationCCBinding, format: .number)
-                            .textFieldStyle(.roundedBorder)
-                            .multilineTextAlignment(.trailing)
-                            .frame(width: 52)
-                        Stepper("CC", value: modulationCCBinding, in: 0...127)
-                            .labelsHidden()
-                        Button("Test CC", action: testCC)
-                            .help("Send this CC at mid value so a synth's MIDI learn can bind it")
-                    }
-                }
-                if line.modulationCC == 7 {
-                    Text("CC7 is channel volume; pick another number for a parameter.")
+                if line.triggerMode == .arpeggio {
+                    Text("Arpeggio steps through the lit segments one note at a time, so Mono does not apply.")
                         .font(.caption2)
                         .foregroundStyle(.secondary)
+                } else {
+                    Toggle("Mono (one note)", isOn: $line.isMonophonic)
+                        .help("Sound at most one note at a time. A sounding segment is held while it stays lit; otherwise the brightest lit segment wins.")
                 }
-                Text("Notes from this line are suppressed while it is a modulation source; turn this off to resume them.")
+            }
+        }
+    }
+
+    /// Controls for a `.control` line: it drives one MIDI CC from the lit pixels'
+    /// position along A→B instead of playing notes.
+    private var controlControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            AdaptiveFlowLayout(horizontalSpacing: 10) {
+                Picker("Channel", selection: channelBinding) {
+                    ForEach(0..<16, id: \.self) { channel in
+                        Text("Ch \(channel + 1)").tag(channel)
+                    }
+                }
+                .frame(width: 118)
+                .help("Channel the control CC is sent on")
+                HStack(spacing: 6) {
+                    Text("CC")
+                    TextField("CC", value: modulationCCBinding, format: .number)
+                        .textFieldStyle(.roundedBorder)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 52)
+                    Stepper("CC", value: modulationCCBinding, in: 0...127)
+                        .labelsHidden()
+                    Button("Test CC", action: testCC)
+                        .help("Send this CC at mid value so a synth's MIDI learn can bind it")
+                }
+            }
+            if line.modulationCC == 7 {
+                Text("CC7 is channel volume; pick another number for a parameter.")
                     .font(.caption2)
                     .foregroundStyle(.secondary)
             }
+            Text("Maps the brightness-weighted position of the lit pixels along A→B to this CC. The line plays no notes and no clip. Bind it in a synth with MIDI learn — MIDI learn binds the CC number, not the channel. An in-app Vital AU receives it when this line shares the Vital line's channel; an external synth receives it on the Kinetic Canvas Ch \(line.midiChannel + 1) port.")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -356,9 +371,37 @@ struct SampleLineSettings: View {
             }
         }
         .frame(width: 152)
-        .help(line.triggerMode == .singleShot
-              ? "Hold a note while the segment has pixels"
-              : "Retrigger the note on each line tick")
+        .help(triggerModeHelp)
+    }
+
+    private var triggerModeHelp: String {
+        switch line.triggerMode {
+        case .singleShot: "Hold a note while the segment has pixels"
+        case .rhythm: "Retrigger the note on each line tick"
+        case .arpeggio: "Step one note at a time through the lit segments"
+        }
+    }
+
+    /// Order the arpeggio walks its currently lit segments.
+    private var arpPatternControl: some View {
+        Picker("Pattern", selection: $line.arpPattern) {
+            ForEach(SampleArpPattern.allCases) { pattern in
+                Text(pattern.label).tag(pattern)
+            }
+        }
+        .frame(width: 140)
+        .help("Order the arpeggio steps through the lit segments")
+    }
+
+    /// How often the arpeggio advances, as a sixteenth-note subdivision.
+    private var arpSpeedControl: some View {
+        Picker("Speed", selection: $line.arpRate) {
+            ForEach([1, 2, 3, 4, 6, 8, 12, 16], id: \.self) { value in
+                Text(rhythmLabel(value)).tag(value)
+            }
+        }
+        .frame(width: 110)
+        .help("Interval between arpeggio steps")
     }
 
     private var channelBinding: Binding<Int> {

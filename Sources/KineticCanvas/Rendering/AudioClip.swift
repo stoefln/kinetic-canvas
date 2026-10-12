@@ -5,8 +5,11 @@ import Foundation
 ///
 /// `midi` keeps the original behavior. `loop` toggles a tempo-synced audio loop
 /// on/off at the next bar. `oneShot` fires a single hit when the line lights up.
+/// `control` makes the line a parameter controller: it emits a MIDI CC from the
+/// brightness-weighted position of its lit pixels instead of playing notes.
 enum SampleLineDestination: String, CaseIterable, Codable, Identifiable, Sendable {
     case midi
+    case control
     case loop
     case oneShot
     case vital
@@ -16,6 +19,7 @@ enum SampleLineDestination: String, CaseIterable, Codable, Identifiable, Sendabl
     var label: String {
         switch self {
         case .midi: "MIDI"
+        case .control: "Control"
         case .loop: "Loop"
         case .oneShot: "One-shot"
         case .vital: "Vital AU"
@@ -25,14 +29,15 @@ enum SampleLineDestination: String, CaseIterable, Codable, Identifiable, Sendabl
     var detail: String {
         switch self {
         case .midi: "Send notes or CC to a host instrument"
+        case .control: "Drive a MIDI CC (e.g. a Vital wavetable) from this line's lit pixels"
         case .loop: "Toggle an imported loop at the next bar"
         case .oneShot: "Fire an imported hit when the line lights up"
         case .vital: "Play this line through a hosted Vital synth in the app"
         }
     }
 
-    /// Notes, CC, and lead/modulation rules apply to MIDI and hosted-instrument
-    /// destinations but not to clips.
+    /// Notes, CC, and lead rules apply to MIDI and hosted-instrument
+    /// destinations but not to clips or a control line.
     var usesNotes: Bool { self == .midi || self == .vital }
 }
 

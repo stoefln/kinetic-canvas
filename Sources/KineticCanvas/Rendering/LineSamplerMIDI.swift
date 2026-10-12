@@ -39,6 +39,8 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private var transposeMode: SampleTransposeMode = .diatonic
     /// Last CC value sent per modulation line; a missing entry forces a resend.
     private var modulationValues: [UUID: UInt8] = [:]
+    /// Next arpeggio step per `.arpeggio` line; the counter drives the pattern.
+    private var arpCounters: [UUID: Int] = [:]
     private var emptyFrames: [UUID: [Int: Int]] = [:]
     private var lastFrame: Double = 0
     /// Highest sixteenth-note index already processed; `.min` means the grid has
@@ -103,11 +105,12 @@ final class LineSamplerMIDI: @unchecked Sendable {
             harmony = newHarmony
             for (id, voices) in active {
                 guard let prior = old[id], let next = newLines.first(where: { $0.id == id }),
-                      newEnabled, next.isEnabled, next.midiEnabled, !next.isModulationSource,
+                      newEnabled, next.isEnabled, next.midiEnabled, next.destination != .control,
                       prior.octave == next.octave,
                       prior.keyCount == next.keyCount,
                       prior.isMonophonic == next.isMonophonic,
                       prior.rhythm == next.rhythm, prior.triggerMode == next.triggerMode,
+                      prior.arpPattern == next.arpPattern, prior.arpRate == next.arpRate,
                       prior.midiChannel == next.midiChannel
                 else { voices.keys.forEach { stop(id: id, segment: $0) }; continue }
             }
@@ -175,7 +178,8 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// noisy area does not toggle a loop on every frame.
     private func emitAudioTriggers(_ stabilized: [UUID: UInt64]) {
         guard let onAudioTrigger else { return }
-        for line in lines where line.isEnabled && line.destination != .midi {
+        for line in lines where line.isEnabled
+            && (line.destination == .loop || line.destination == .oneShot) {
             let occupied = (stabilized[line.id] ?? 0) != 0
             let wasOccupied = occupiedLines[line.id] ?? false
             occupiedLines[line.id] = occupied
@@ -205,7 +209,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private func emitModulation() {
         guard enabled else { return }
         var changed = false
-        for line in lines where line.isEnabled && line.isModulationSource {
+        for line in lines where line.isEnabled && line.destination == .control {
             guard (0..<16).contains(line.midiChannel),
                   let lineLevels = levels[line.id],
                   let value = Self.modulationValue(levels: lineLevels, threshold: triggerThreshold)
@@ -241,6 +245,13 @@ final class LineSamplerMIDI: @unchecked Sendable {
         return UInt8(min(127, max(0, Int((position * 127).rounded()))))
     }
 
+    /// The segment a 0...127 CC value maps to on a control line's value scale.
+    /// The occupancy pass resolves the value into `maxSections` buckets, so the
+    /// scale has exactly that many segments and only one ever highlights.
+    static func controlSegment(forValue value: UInt8) -> Int {
+        Int((Double(value) / 127.0 * Double(maxSections - 1)).rounded())
+    }
+
     /// Picks the one segment a monophonic line should sound: the segment it
     /// already holds if that segment is still lit, otherwise the brightest lit
     /// segment (lowest index breaks ties). Returns nil when nothing is lit.
@@ -264,6 +275,53 @@ final class LineSamplerMIDI: @unchecked Sendable {
 
     private func monophonicSegment(for line: SampleLine, mask: UInt64) -> Int? {
         Self.monophonicSegment(mask: mask, levels: levels[line.id], held: active[line.id]?.keys.min())
+    }
+
+    /// Advances one `.arpeggio` line by a single step: releases whatever it was
+    /// holding, picks the next lit segment from the pattern, and plays it. A dark
+    /// line releases and stays silent, so the arp never sounds without pixels.
+    private func advanceArpeggio(for line: SampleLine, channel: UInt8, leadDegree: Int,
+                                 fresh: Bool, now: Double, secondsPerStep: Double) {
+        let mask = fresh ? (bitsets[line.id] ?? 0) : 0
+        let pitches = effectivePitches(for: line, leadDegree: leadDegree)
+        let candidates = pitches.indices.filter { mask & (UInt64(1) << UInt64($0)) != 0 }
+        guard !candidates.isEmpty else {
+            active[line.id]?.keys.forEach { stop(id: line.id, segment: $0) }
+            return
+        }
+        let counter = (arpCounters[line.id] ?? -1) + 1
+        arpCounters[line.id] = counter
+        let segment = Self.arpSegment(pattern: line.arpPattern, counter: counter, candidates: candidates)
+        // One note at a time: release everything else, then retrigger the step.
+        active[line.id]?.keys.filter { $0 != segment }.forEach { stop(id: line.id, segment: $0) }
+        stop(id: line.id, segment: segment)
+        guard harmony.allows(pitches[segment], against: soundingPitches) else { return }
+        let gate = secondsPerStep * Double(max(1, line.arpRate)) * 0.5
+        let velocity = Self.velocity(forLevel: levels[line.id]?[segment] ?? 255)
+        route(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity,
+              lineID: line.id, destination: line.destination)
+        active[line.id, default: [:]][segment] = Voice(pitch: pitches[segment], channel: channel,
+                                                       offAt: now + gate, lineID: line.id,
+                                                       destination: line.destination)
+    }
+
+    /// The segment an arpeggio step lands on, given a monotonic step counter and
+    /// the currently lit segments (ascending). Pure so the patterns stay testable.
+    static func arpSegment(pattern: SampleArpPattern, counter: Int, candidates: [Int]) -> Int {
+        guard !candidates.isEmpty else { return 0 }
+        switch pattern {
+        case .up:
+            return candidates[counter % candidates.count]
+        case .down:
+            return candidates[candidates.count - 1 - (counter % candidates.count)]
+        case .upDown:
+            guard candidates.count > 1 else { return candidates[0] }
+            let period = 2 * candidates.count - 2
+            let position = ((counter % period) + period) % period
+            return position < candidates.count ? candidates[position] : candidates[period - position]
+        case .random:
+            return candidates[Int.random(in: 0..<candidates.count)]
+        }
     }
 
     func stop() {
@@ -333,13 +391,16 @@ final class LineSamplerMIDI: @unchecked Sendable {
         }
     }
 
-    /// Diagnostic: sends one modulation CC at mid value so a synth's MIDI-learn
-    /// can bind it without waiting for a lit line.
+    /// Diagnostic: sends one control CC at mid value so a synth's MIDI-learn can
+    /// bind it without waiting for a lit line. Reaches both the Core MIDI port
+    /// and a hosted instrument sharing the channel.
     func sendTestModulation(channel: Int, controller: Int) {
         guard (0..<16).contains(channel) else { return }
         let cc = UInt8(min(127, max(0, controller)))
         queue.async { [self] in
-            enqueueCC(channel: UInt8(channel), controller: cc, value: 64)
+            let ch = UInt8(channel)
+            sendToHostedInstrument(onChannel: ch, controller: cc, value: 64)
+            enqueueCC(channel: ch, controller: cc, value: 64)
             flushMessages()
         }
     }
@@ -363,7 +424,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
             reconcileSingleShots(fresh: fresh, allowOnsets: !quantize || onGrid, leadDegree: lead)
             if onGrid {
                 let secondsPerStep = transport.secondsPerStep
-                for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource && line.triggerMode == .rhythm {
+                for line in lines where line.isEnabled && line.midiEnabled && line.destination != .control && line.triggerMode == .rhythm {
                     guard currentStep % Int64(max(1, line.rhythm)) == 0 else { continue }
                     guard (0..<16).contains(line.midiChannel) else { continue }
                     let channel = UInt8(line.midiChannel)
@@ -398,6 +459,15 @@ final class LineSamplerMIDI: @unchecked Sendable {
                                                                        destination: line.destination)
                     }
                 }
+                // Arpeggio lines step one note at a time through the lit
+                // segments, on their own subdivision of the same grid.
+                for line in lines where line.isEnabled && line.midiEnabled
+                    && line.destination != .control && line.triggerMode == .arpeggio {
+                    guard (0..<16).contains(line.midiChannel) else { continue }
+                    guard currentStep % Int64(max(1, line.arpRate)) == 0 else { continue }
+                    advanceArpeggio(for: line, channel: UInt8(line.midiChannel), leadDegree: lead,
+                                    fresh: fresh, now: now, secondsPerStep: secondsPerStep)
+                }
             }
         }
         flushMessages()
@@ -409,7 +479,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// Releases always happen now; `allowOnsets` is false between grid lines
     /// when quantization is on.
     private func reconcileSingleShots(fresh: Bool, allowOnsets: Bool, leadDegree: Int) {
-        for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource && line.triggerMode == .singleShot {
+        for line in lines where line.isEnabled && line.midiEnabled && line.destination != .control && line.triggerMode == .singleShot {
             guard (0..<16).contains(line.midiChannel) else {
                 active[line.id]?.keys.forEach { stop(id: line.id, segment: $0) }
                 continue
@@ -458,7 +528,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
     /// The lead line's active scale degree, or 0 when there is no lead or it is
     /// silent. The lowest occupied segment wins if several are lit.
     private var leadDegree: Int {
-        guard let lead = lines.first(where: { $0.isLead && $0.isEnabled && $0.midiEnabled && !$0.isModulationSource }),
+        guard let lead = lines.first(where: { $0.isLead && $0.isEnabled && $0.midiEnabled && $0.destination != .control }),
               let mask = bitsets[lead.id], mask != 0 else { return 0 }
         let count = max(1, harmony.scale.offsets.count)
         // A multi-octave lead may be lit above the first octave; fold the key
@@ -486,7 +556,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         let lead = leadDegree
         let sounding = soundingPitches
         var blocked: [UUID: UInt64] = [:]
-        for line in lines where line.isEnabled && line.midiEnabled && !line.isModulationSource {
+        for line in lines where line.isEnabled && line.midiEnabled && line.destination != .control {
             var mask: UInt64 = 0
             for (segment, pitch) in effectivePitches(for: line, leadDegree: lead).enumerated()
             where !harmony.allows(pitch, against: sounding) {
@@ -494,7 +564,15 @@ final class LineSamplerMIDI: @unchecked Sendable {
             }
             blocked[line.id] = mask
         }
-        return SamplerVisualState(activeMasks: masks, blockedMasks: blocked, leadDegree: lead)
+        // A control line's highlighted bucket is the segment its held CC value
+        // maps to, so the overlay can light exactly one step of its value scale.
+        var control: [UUID: Int] = [:]
+        for line in lines where line.isEnabled && line.isControlLine {
+            guard let value = modulationValues[line.id] else { continue }
+            control[line.id] = Self.controlSegment(forValue: value)
+        }
+        return SamplerVisualState(activeMasks: masks, blockedMasks: blocked,
+                                  controlSegments: control, leadDegree: lead)
     }
 
     /// Publishes only real changes; the 5 ms tick would otherwise re-render the
@@ -528,6 +606,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         occupiedLines.removeAll()
         lastFrame = 0
         modulationValues.removeAll()
+        arpCounters.removeAll()
     }
 
     /// Resolves the destination port for a channel under the current mode.
@@ -572,7 +651,8 @@ final class LineSamplerMIDI: @unchecked Sendable {
     private func reconcileChannelSources(for lines: [SampleLine]) {
         guard portMode == .perLine else { return }
         var needed = Set<UInt8>()
-        for line in lines where line.destination == .midi && (0..<16).contains(line.midiChannel) {
+        for line in lines where (line.destination == .midi || line.destination == .control)
+            && (0..<16).contains(line.midiChannel) {
             needed.insert(UInt8(line.midiChannel))
         }
         for channel in needed where channelSources[channel] == nil {
@@ -597,9 +677,25 @@ final class LineSamplerMIDI: @unchecked Sendable {
         if destination == .vital, let onInstrumentEvent {
             onInstrumentEvent(LineInstrumentEvent(lineID: lineID, status: 0xB0 | (channel & 0x0F),
                                                   data1: controller, data2: value))
-        } else {
-            enqueueCC(channel: channel, controller: controller, value: value)
+            return
         }
+        // A control line also drives whichever hosted instrument shares its
+        // channel (Vital is global-OMNI, so the channel only picks the slot).
+        // It still goes out the Core MIDI port for an external host.
+        sendToHostedInstrument(onChannel: channel, controller: controller, value: value)
+        enqueueCC(channel: channel, controller: controller, value: value)
+    }
+
+    /// Delivers a CC to the hosted instrument whose line shares `channel`, if the
+    /// app is hosting one there. No-op when no hosted instrument listens on that
+    /// channel, so an external-only setup is unaffected.
+    private func sendToHostedInstrument(onChannel channel: UInt8, controller: UInt8, value: UInt8) {
+        guard let onInstrumentEvent else { return }
+        guard let line = lines.first(where: {
+            $0.isEnabled && $0.destination == .vital && $0.midiChannel == Int(channel)
+        }) else { return }
+        onInstrumentEvent(LineInstrumentEvent(lineID: line.id, status: 0xB0 | (channel & 0x0F),
+                                              data1: controller, data2: value))
     }
 
     private func enqueue(status: UInt8, pitch: Int, velocity: UInt8) {

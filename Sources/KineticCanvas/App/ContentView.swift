@@ -441,7 +441,6 @@ struct ContentView: View {
                                 setEnabled: { controller.setSampleEnabled(id: id, enabled: $0) },
                                 setChannel: { controller.setSampleChannel(id: id, channel: $0) },
                                 setLead: { controller.setSampleLead(id: id, enabled: $0) },
-                                setModulation: { controller.setSampleModulationSource(id: id, enabled: $0) },
                                 setModulationCC: { controller.setSampleModulationCC(id: id, cc: $0) },
                                 testCC: { controller.sendTestCC(id: id) },
                                 setDestination: { controller.setSampleDestination(id: id, destination: $0) },
@@ -737,7 +736,6 @@ private struct SampleLineSettingsRow: View {
     let setEnabled: (Bool) -> Void
     let setChannel: (Int) -> Void
     let setLead: (Bool) -> Void
-    let setModulation: (Bool) -> Void
     let setModulationCC: (Int) -> Void
     let testCC: () -> Void
     let setDestination: (SampleLineDestination) -> Void
@@ -765,7 +763,6 @@ private struct SampleLineSettingsRow: View {
             setEnabled: setEnabled,
             setChannel: setChannel,
             setLead: setLead,
-            setModulation: setModulation,
             setModulationCC: setModulationCC,
             testCC: testCC,
             setDestination: setDestination,

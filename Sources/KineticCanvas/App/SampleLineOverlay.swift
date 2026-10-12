@@ -26,28 +26,39 @@ struct SampleLineOverlay: View {
         let dx = b.x - a.x, dy = b.y - a.y
         let length = hypot(dx, dy)
         guard length >= 2 else { return }
-        let count = harmony.resolvedKeyCount(line.keyCount)
+        let count = line.isControlLine ? LineSamplerMIDI.maxSections : harmony.resolvedKeyCount(line.keyCount)
         let ux = dx / length, uy = dy / length
         let segmentLength = length / Double(count)
         let gap = min(max(segmentLength * 0.22, 2), 10)
         let inset = min(gap / 2, segmentLength * 0.4)
+        let controlSegment = state.state.controlSegments[line.id]
         for index in 0..<count {
             let start = Double(index) * segmentLength + inset
             let end = Double(index + 1) * segmentLength - inset
             guard end > start else { continue }
-            let segmentState = harmony.segmentState(index: index, line: line, by: state.state)
-            let opacity = harmony.segmentOpacity(segmentState, visibility: line.visibility)
+            let highlight: Bool
+            let opacity: Double
+            if line.isControlLine {
+                // A control line draws its whole CC value scale; exactly the
+                // bucket the current value maps to is highlighted.
+                highlight = index == controlSegment
+                opacity = highlight ? line.visibility : line.visibility * 0.3
+            } else {
+                let segmentState = harmony.segmentState(index: index, line: line, by: state.state)
+                highlight = segmentState == .active
+                opacity = harmony.segmentOpacity(segmentState, visibility: line.visibility)
+            }
             guard opacity > 0.001 else { continue }
             var path = Path()
             path.move(to: CGPoint(x: a.x + ux * start, y: a.y + uy * start))
             path.addLine(to: CGPoint(x: a.x + ux * end, y: a.y + uy * end))
             context.stroke(path, with: .color(line.segmentColor.opacity(opacity)),
-                           lineWidth: segmentState == .active ? 4 : 3)
+                           lineWidth: highlight ? 4 : 3)
         }
         if showNotes {
             drawLineNumber(number, a: a, b: b, visibility: line.visibility, context: &context)
         }
-        guard showNotes, segmentLength >= 36 else { return }
+        guard showNotes, !line.isControlLine, segmentLength >= 36 else { return }
         let pitches = harmony.effectivePitches(octave: line.octave,
                                                keyCount: line.keyCount,
                                                leadDegree: state.state.leadDegree,

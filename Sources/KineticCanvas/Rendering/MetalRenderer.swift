@@ -1492,10 +1492,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             )
         }
 
-        if displayMode.rawValue >= DisplayMode.foreground.rawValue && lineSamplerEnabled {
-            encodeLineSampler(output: drawable.texture, commandBuffer: commandBuffer)
-        }
-
+        // Explosions composite before the Line Sampler so their pixels are part
+        // of the pre-sampler image the occupancy pass reads. Placing them after
+        // would make them invisible to the sampler's input.
         if clapExplosionsEnabled {
             encodeClapExplosions(
                 output: drawable.texture,
@@ -1504,6 +1503,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                 now: now,
                 commandBuffer: commandBuffer
             )
+        }
+
+        if displayMode.rawValue >= DisplayMode.foreground.rawValue && lineSamplerEnabled {
+            encodeLineSampler(output: drawable.texture, commandBuffer: commandBuffer)
         }
 
         lock.lock()
@@ -1591,7 +1594,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         let lines = Array(sampleLines.prefix(16)).filter {
             hypot($0.ax - $0.bx, $0.ay - $0.by) > 0.005
         }
-        let ids = Set(lines.map(\.id))
+        // Control lines drive a parameter; they are sampled for occupancy but
+        // never produce pixels, so they get no history texture and no composite.
+        let visualLines = lines.filter { !$0.isControlLine }
+        let ids = Set(visualLines.map(\.id))
         if ids != sampleHistoryIDs {
             sampleHistories = sampleHistories.filter { ids.contains($0.key) }
             sampleHistoryIDs = ids
@@ -1607,7 +1613,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             sampleSourceTexture = device.makeTexture(descriptor: descriptor)
         }
         guard let source = sampleSourceTexture else { return }
-        let samplesOtherLines = lines.contains(where: \.samplesOtherLines)
+        let samplesOtherLines = visualLines.contains(where: \.samplesOtherLines)
 
         // A line that samples other lines reads the previous frame's fully
         // composited sampler output. Keeping a copy is what makes the behavior
@@ -1650,7 +1656,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
 
         // Capture all lines before compositing any of them, so they sample the same live input.
         var captures: [(MTLTexture, SampleParams)] = []
-        for line in lines {
+        for line in visualLines {
             if sampleHistories[line.id].map({ !$0.line.sameGeometry(as: line) }) ?? true {
                 let descriptor = MTLTextureDescriptor.texture2DDescriptor(
                     pixelFormat: .bgra8Unorm, width: 512, height: 512, mipmapped: false
@@ -1739,7 +1745,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             // Each line exposes its own number of keys, so the count is per-line.
             // The modulation-source line is not keyed: it is sampled as a
             // continuous position sensor at the buffer's full resolution.
-            let sectionCount = line.isModulationSource
+            let sectionCount = line.destination == .control
                 ? UInt32(LineSamplerMIDI.maxSections)
                 : UInt32(sampleHarmony.resolvedKeyCount(line.keyCount))
             parameters[index] = OccupancyLine(

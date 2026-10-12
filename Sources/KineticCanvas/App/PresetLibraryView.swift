@@ -150,6 +150,7 @@ private struct PresetCard: View {
         case .oneShot: "One-shot"
         case .vital: "Vital"
         case .midi: "MIDI"
+        case .control: "Control"
         }
     }
 

@@ -597,24 +597,15 @@ final class AppController: ObservableObject {
         sampleLines[index].isEnabled = enabled
     }
 
-    /// Switches a line between a MIDI instrument, an audio clip, and a hosted
-    /// Vital synth. A hosted instrument drives the same note pipeline as MIDI, so
-    /// note generation is forced on for it; clip destinations clear the MIDI
-    /// roles so the row cannot show a stale Lead/Modulation state.
+    /// Switches a line between a MIDI instrument, a parameter controller, an
+    /// audio clip, and a hosted Vital synth. A hosted instrument drives the same
+    /// note pipeline as MIDI, so note generation is forced on for it; clip and
+    /// control destinations clear the MIDI roles so the row cannot show a stale
+    /// Lead state. See `SampleLine.settingDestination`.
     func setSampleDestination(id: UUID, destination: SampleLineDestination) {
-        guard let index = sampleLines.firstIndex(where: { $0.id == id }),
-              sampleLines[index].destination != destination else { return }
-        sampleLines[index].destination = destination
-        switch destination {
-        case .midi:
-            break
-        case .vital:
-            sampleLines[index].midiEnabled = true
-        case .loop, .oneShot:
-            sampleLines[index].midiEnabled = false
-            sampleLines[index].isLead = false
-            sampleLines[index].isModulationSource = false
-        }
+        let updated = SampleLine.settingDestination(destination, for: id, in: sampleLines)
+        guard updated != sampleLines else { return }
+        sampleLines = updated
     }
 
     // MARK: - Hosted Vital instrument
@@ -768,9 +759,6 @@ final class AppController: ObservableObject {
         if enabled {
             for i in updated.indices {
                 updated[i].isLead = updated[i].id == id
-                // A modulation line is excluded from notes, so it cannot also be
-                // the lead; making one the lead releases its modulation role.
-                if updated[i].id == id { updated[i].isModulationSource = false }
             }
             updated[index].midiEnabled = true
         } else {
@@ -780,20 +768,7 @@ final class AppController: ObservableObject {
         sampleLines = updated
     }
 
-    /// Toggles one line's modulation role. Several lines can be modulation
-    /// sources at once, each driving its own `modulationCC` on its own channel.
-    ///
-    /// The line's note settings (octave, keys, rhythm, channel, …) are left
-    /// untouched; the MIDI layer already suppresses notes while the line is a
-    /// modulation source, so turning the role back off restores it exactly as it
-    /// was rather than leaving `midiEnabled` stuck off.
-    func setSampleModulationSource(id: UUID, enabled: Bool) {
-        let updated = SampleLine.settingModulation(enabled, for: id, in: sampleLines)
-        guard updated != sampleLines else { return }
-        sampleLines = updated
-    }
-
-    /// Sets a modulation line's CC number.
+    /// Sets a control line's CC number.
     func setSampleModulationCC(id: UUID, cc: Int) {
         guard let index = sampleLines.firstIndex(where: { $0.id == id }) else { return }
         let clamped = min(127, max(0, cc))
@@ -801,10 +776,10 @@ final class AppController: ObservableObject {
         sampleLines[index].modulationCC = clamped
     }
 
-    /// Sends one line's modulation CC at mid value so a host synth's MIDI learn
-    /// can bind it without waiting for a lit line.
+    /// Sends one line's control CC at mid value so a host synth's MIDI learn can
+    /// bind it without waiting for a lit line.
     func sendTestCC(id: UUID) {
-        guard let line = sampleLines.first(where: { $0.id == id && $0.isModulationSource }) else { return }
+        guard let line = sampleLines.first(where: { $0.id == id && $0.isControlLine }) else { return }
         lineMIDI.sendTestModulation(channel: line.midiChannel, controller: line.modulationCC)
     }
 
