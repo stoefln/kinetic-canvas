@@ -276,6 +276,34 @@ final class SampleLineRoutingTests: XCTestCase {
         XCTAssertEqual(copy.arpRate, 4)
     }
 
+    func testNoteLengthDefaultsClampsAndIsInheritedOnCopy() throws {
+        let line = SampleLine(ax: 0, ay: 0, bx: 1, by: 1)
+        XCTAssertEqual(line.noteLength, 0.5)
+
+        let encoded = try JSONEncoder().encode([line])
+        var json = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [[String: Any]])
+        json[0].removeValue(forKey: "noteLength")
+        var restored = try JSONDecoder().decode(
+            [SampleLine].self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored[0].noteLength, 0.5)
+
+        json[0]["noteLength"] = 5
+        restored = try JSONDecoder().decode(
+            [SampleLine].self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored[0].noteLength, 1)
+
+        json[0]["noteLength"] = 0
+        restored = try JSONDecoder().decode(
+            [SampleLine].self, from: JSONSerialization.data(withJSONObject: json))
+        XCTAssertEqual(restored[0].noteLength, 0.05)
+
+        // A new line inherits the length like the other note settings.
+        var source = line
+        source.noteLength = 0.25
+        let copy = SampleLine(ax: 0, ay: 0.5, bx: 1, by: 0.5, midiChannel: 1, copying: source)
+        XCTAssertEqual(copy.noteLength, 0.25)
+    }
+
     func testMonophonicDefaultsOffAndIsInheritedOnCopy() throws {
         let line = SampleLine(ax: 0, ay: 0, bx: 1, by: 1)
         XCTAssertFalse(line.isMonophonic)

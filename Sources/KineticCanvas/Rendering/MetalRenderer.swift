@@ -123,6 +123,22 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     var clapExplosionOpacity: Float = 1
     var clapExplosionBlendMode: OverlayBlendMode = .screen
     var effectOrder: [EffectKind] = [.gradientOverlay, .historicalTrail]
+    var kaleidoscopeEnabled = false
+    var kaleidoscopeBlendMode: OverlayBlendMode = .normal
+    var kaleidoscopeSegments = 6
+    var kaleidoscopeRotationDegrees: Float = 0
+    var kaleidoscopeSpeed: Float = 0
+    var kaleidoscopeZoom: Float = 1
+    var kaleidoscopeOpacity: Float = 1
+    /// Joint the symmetry center follows. nil anchors to the frame center.
+    var kaleidoscopeJoint: PoseJoint?
+    /// Which tracked body (in Vision's prominence order) the joint is read from.
+    var kaleidoscopePersonIndex = 0
+    /// Extra offset from the chosen anchor, in view-normalized units.
+    var kaleidoscopeCenterOffset = SIMD2<Float>(0, 0)
+    /// Below this joint confidence the center falls back to the frame center, so
+    /// a lost wrist does not fling the fold to a stale position.
+    var kaleidoscopeJointConfidence: Float = 0.25
 
     private let commandQueue: MTLCommandQueue
     private let basePipeline: MTLComputePipelineState
@@ -130,6 +146,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private let subjectPipeline: MTLComputePipelineState
     private let signalMaskPipeline: MTLComputePipelineState
     private let snapshotPipeline: MTLComputePipelineState
+    private let kaleidoscopePipeline: MTLComputePipelineState
     private let sampleCapturePipeline: MTLComputePipelineState
     private let sampleCompositePipeline: MTLComputePipelineState
     private let sampleOccupancyPipeline: MTLComputePipelineState
@@ -176,6 +193,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
     private var nextExplosionSegment = 0
     private var explosionURL: URL?
     private var signalMaskTexture: MTLTexture?
+    /// Scratch holding a snapshot of the composited frame for the kaleidoscope
+    /// gather, which cannot read and write the drawable in the same pass.
+    private var kaleidoscopeScratch: MTLTexture?
     private var snapshotPool: [SignalSnapshotTextures] = []
     private var sampleHistories: [UUID: SampleHistory] = [:]
     private var sampleHistoryIDs: Set<UUID> = []
@@ -242,6 +262,15 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         uint videoBlendMode;
         uint liquidBlendMode;
         uint particleBlendMode;
+        uint kaleidoEnabled;
+        uint kaleidoBlendMode;
+        uint kaleidoSegments;
+        float kaleidoRotation;
+        float kaleidoSpeed;
+        float kaleidoZoom;
+        float kaleidoOpacity;
+        float kaleidoCenterX;
+        float kaleidoCenterY;
     };
 
     struct TrailLayerParams {
@@ -350,6 +379,31 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         p += warp * params.liquidStrength;
         p.x /= params.viewAspect;
         return p + 0.5;
+    }
+
+    // Gather transform for the kaleidoscope: maps an output coordinate to the
+    // source coordinate it should read, folding the frame into `segments`
+    // mirrored wedges around a center. Because it is a gather, it can be applied
+    // to whatever has been composited beneath it without an extra render target.
+    float2 kaleidoUV(float2 uv, constant Params& params) {
+        float segments = max(2.0, float(params.kaleidoSegments));
+        float2 center = float2(params.kaleidoCenterX, params.kaleidoCenterY);
+        float2 p = uv - center;
+        p.x *= params.viewAspect;
+        float radius = length(p);
+        if (radius < 1e-5) return uv;
+        float wedge = 6.2831853 / segments;
+        float angle = atan2(p.y, p.x) + params.kaleidoRotation
+            + params.time * params.kaleidoSpeed;
+        angle = fmod(angle, wedge);
+        if (angle < 0.0) angle += wedge;
+        // Mirror inside each wedge so neighbouring wedges meet seamlessly.
+        float halfWedge = wedge * 0.5;
+        if (angle > halfWedge) angle = wedge - angle;
+        radius *= max(0.05, params.kaleidoZoom);
+        float2 folded = float2(cos(angle), sin(angle)) * radius;
+        folded.x /= params.viewAspect;
+        return folded + center;
     }
 
     float processedAlpha(float value, constant Params& params) {
@@ -676,6 +730,24 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         output.write(float4(mix(base, subject, a), 1.0), gid);
     }
 
+    // Applies the kaleidoscope fold to the composited output. Reads a snapshot of
+    // everything drawn beneath it and writes the folded result, so it behaves like
+    // any other stack stage: each effect sees the output of the one above it.
+    kernel void kaleidoscopePass(
+        texture2d<float, access::sample> source [[texture(0)]],
+        texture2d<float, access::write> output [[texture(1)]],
+        constant Params& params [[buffer(0)]],
+        uint2 gid [[thread_position_in_grid]])
+    {
+        if (gid.x >= output.get_width() || gid.y >= output.get_height()) return;
+        constexpr sampler s(address::clamp_to_edge, filter::linear);
+        float2 uv = (float2(gid) + 0.5) / float2(output.get_width(), output.get_height());
+        float3 folded = source.sample(s, kaleidoUV(uv, params)).rgb;
+        float3 base = source.sample(s, uv).rgb;
+        float3 color = trailBlend(base, folded, params.kaleidoOpacity, params.kaleidoBlendMode);
+        output.write(float4(color, 1.0), gid);
+    }
+
     vertex OverlayOutput overlayVertex(
         const device OverlayVertex* vertices [[buffer(0)]],
         uint vertexID [[vertex_id]])
@@ -940,6 +1012,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
                   let subject = library.makeFunction(name: "subjectPass"),
                   let signalMask = library.makeFunction(name: "signalMaskPass"),
                   let snapshot = library.makeFunction(name: "snapshotPass"),
+                  let kaleidoscope = library.makeFunction(name: "kaleidoscopePass"),
                   let sampleCapture = library.makeFunction(name: "sampleCapturePass"),
                   let sampleOccupancy = library.makeFunction(name: "sampleOccupancyPass"),
                   let sampleComposite = library.makeFunction(name: "sampleCompositePass"),
@@ -952,6 +1025,7 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             self.subjectPipeline = try device.makeComputePipelineState(function: subject)
             self.signalMaskPipeline = try device.makeComputePipelineState(function: signalMask)
             self.snapshotPipeline = try device.makeComputePipelineState(function: snapshot)
+            self.kaleidoscopePipeline = try device.makeComputePipelineState(function: kaleidoscope)
             self.sampleCapturePipeline = try device.makeComputePipelineState(function: sampleCapture)
             self.sampleOccupancyPipeline = try device.makeComputePipelineState(function: sampleOccupancy)
             self.sampleCompositePipeline = try device.makeComputePipelineState(function: sampleComposite)
@@ -1312,6 +1386,10 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         let videoTexture = videoFillEnabled
             ? activeVideoFillPlayer?.currentPixelBuffer(hostTime: now).flatMap { makeTexture(from: $0, format: .bgra8Unorm) }
             : nil
+        let kaleidoCenter = kaleidoscopeCenter(
+            poses: poses,
+            viewAspect: Float(drawable.texture.width) / Float(drawable.texture.height)
+        ) + kaleidoscopeCenterOffset
         let params = ShaderParams(
             mode: UInt32(displayMode.rawValue),
             background: UInt32(background.rawValue),
@@ -1355,8 +1433,33 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             gradientBlendMode: gradientBlendMode.rawValue,
             videoBlendMode: videoBlendMode.rawValue,
             liquidBlendMode: liquidBlendMode.rawValue,
-            particleBlendMode: particleBlendMode.rawValue
+            particleBlendMode: particleBlendMode.rawValue,
+            kaleidoEnabled: kaleidoscopeEnabled ? 1 : 0,
+            kaleidoBlendMode: kaleidoscopeBlendMode.rawValue,
+            kaleidoSegments: UInt32(clamping: kaleidoscopeSegments),
+            kaleidoRotation: kaleidoscopeRotationDegrees * .pi / 180,
+            kaleidoSpeed: kaleidoscopeSpeed,
+            kaleidoZoom: kaleidoscopeZoom,
+            kaleidoOpacity: kaleidoscopeOpacity,
+            kaleidoCenterX: kaleidoCenter.x,
+            kaleidoCenterY: kaleidoCenter.y
         )
+
+        // The kaleidoscope is a gather over the composited frame, so it runs at the
+        // point in the stack its order gives it: below the explosions, between the
+        // explosions and the Line Sampler, or after the Line Sampler — which decides
+        // whether the sampler sees the folded image. Disabled stages are skipped
+        // rather than treated as boundaries, so the fold lands next to its neighbours
+        // instead of being pulled to the top by a missing effect's sentinel order.
+        let kaleidoOrder = effectOrderValue(.kaleidoscope)
+        let kaleidoscopeActive = kaleidoscopeEnabled
+            && displayMode.rawValue >= DisplayMode.foreground.rawValue
+        let runBeforeExplosions = clapExplosionsEnabled
+            && kaleidoOrder < effectOrderValue(.clapExplosions)
+        let runBeforeSampler = lineSamplerEnabled
+            && kaleidoOrder < effectOrderValue(.lineSampler)
+        let runBetweenStages = !runBeforeExplosions && runBeforeSampler
+        let runAfterStages = !runBeforeExplosions && !runBeforeSampler
 
         encodePass(
             pipeline: basePipeline,
@@ -1495,6 +1598,9 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         // Explosions composite before the Line Sampler so their pixels are part
         // of the pre-sampler image the occupancy pass reads. Placing them after
         // would make them invisible to the sampler's input.
+        if kaleidoscopeActive && runBeforeExplosions {
+            encodeKaleidoscope(output: drawable.texture, params: params, commandBuffer: commandBuffer)
+        }
         if clapExplosionsEnabled {
             encodeClapExplosions(
                 output: drawable.texture,
@@ -1505,8 +1611,16 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
             )
         }
 
+        if kaleidoscopeActive && runBetweenStages {
+            encodeKaleidoscope(output: drawable.texture, params: params, commandBuffer: commandBuffer)
+        }
+
         if displayMode.rawValue >= DisplayMode.foreground.rawValue && lineSamplerEnabled {
             encodeLineSampler(output: drawable.texture, commandBuffer: commandBuffer)
+        }
+
+        if kaleidoscopeActive && runAfterStages {
+            encodeKaleidoscope(output: drawable.texture, params: params, commandBuffer: commandBuffer)
         }
 
         lock.lock()
@@ -1826,6 +1940,69 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         return signalMaskTexture
     }
 
+    private func kaleidoscopeScratchTexture(width: Int, height: Int) -> MTLTexture? {
+        if let kaleidoscopeScratch,
+           kaleidoscopeScratch.width == width,
+           kaleidoscopeScratch.height == height {
+            return kaleidoscopeScratch
+        }
+        let descriptor = MTLTextureDescriptor.texture2DDescriptor(
+            pixelFormat: .bgra8Unorm,
+            width: width,
+            height: height,
+            mipmapped: false
+        )
+        descriptor.storageMode = .private
+        descriptor.usage = [.shaderRead, .shaderWrite]
+        kaleidoscopeScratch = device.makeTexture(descriptor: descriptor)
+        return kaleidoscopeScratch
+    }
+
+    /// Snapshot the composited output, then fold it back through `kaleidoscopePass`.
+    /// The gather cannot read and write the same texture, so it reads the snapshot
+    /// and writes the drawable. One extra full-resolution pass plus one blit.
+    private func encodeKaleidoscope(
+        output: MTLTexture,
+        params: ShaderParams,
+        commandBuffer: MTLCommandBuffer
+    ) {
+        guard params.kaleidoEnabled != 0,
+              let scratch = kaleidoscopeScratchTexture(width: output.width, height: output.height),
+              let blit = commandBuffer.makeBlitCommandEncoder() else { return }
+        blit.copy(
+            from: output, sourceSlice: 0, sourceLevel: 0,
+            sourceOrigin: MTLOrigin(x: 0, y: 0, z: 0),
+            sourceSize: MTLSize(width: output.width, height: output.height, depth: 1),
+            to: scratch, destinationSlice: 0, destinationLevel: 0,
+            destinationOrigin: MTLOrigin(x: 0, y: 0, z: 0)
+        )
+        blit.endEncoding()
+
+        var params = params
+        guard let encoder = commandBuffer.makeComputeCommandEncoder() else { return }
+        encoder.setComputePipelineState(kaleidoscopePipeline)
+        encoder.setTexture(scratch, index: 0)
+        encoder.setTexture(output, index: 1)
+        encoder.setBytes(&params, length: MemoryLayout<ShaderParams>.stride, index: 0)
+        dispatch(pipeline: kaleidoscopePipeline, output: output, encoder: encoder)
+        encoder.endEncoding()
+    }
+
+    /// View-normalized anchor for the fold: the chosen joint on the chosen body
+    /// when it is tracked confidently, otherwise the frame center.
+    private func kaleidoscopeCenter(poses: [BodyPose], viewAspect: Float) -> SIMD2<Float> {
+        guard let joint = kaleidoscopeJoint,
+              kaleidoscopePersonIndex >= 0,
+              kaleidoscopePersonIndex < poses.count else {
+            return SIMD2(0.5, 0.5)
+        }
+        let pose = poses[kaleidoscopePersonIndex]
+        guard let point = pose.points[joint], point.confidence >= kaleidoscopeJointConfidence else {
+            return SIMD2(0.5, 0.5)
+        }
+        return viewPosition(point.position, sourceAspect: pose.sourceAspect, viewAspect: viewAspect)
+    }
+
     private func encodeSignalMask(
         alpha: MTLTexture,
         output: MTLTexture,
@@ -1952,45 +2129,54 @@ final class MetalRenderer: NSObject, MTKViewDelegate, @unchecked Sendable {
         pass.colorAttachments[0].storeAction = .store
         guard let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: pass) else { return }
 
-        if !skeletonVertices.isEmpty {
-            encoder.setRenderPipelineState(skeletonPipelines[Int(skeletonBlendMode.rawValue)])
-            var blendMode = skeletonBlendMode.rawValue
-            encoder.setFragmentBytes(&blendMode, length: MemoryLayout<UInt32>.stride, index: 1)
-            if let buffer = device.makeBuffer(
-                bytes: skeletonVertices,
-                length: skeletonVertices.count * MemoryLayout<OverlayVertex>.stride
-            ) {
-                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-                encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: skeletonVertices.count)
-            }
-        }
-        if !linesVertices.isEmpty {
-            encoder.setRenderPipelineState(linesPipelines[Int(linesBlendMode.rawValue)])
-            var params = params
-            encoder.setFragmentBytes(&params, length: MemoryLayout<ShaderParams>.stride, index: 0)
-            encoder.setFragmentTexture(video, index: 0)
-            if let buffer = device.makeBuffer(
-                bytes: linesVertices,
-                length: linesVertices.count * MemoryLayout<OverlayVertex>.stride
-            ) {
-                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-                encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: linesVertices.count)
-            }
-        }
-        if !particleVertices.isEmpty, let particleColorBuffer {
-            encoder.setRenderPipelineState(particlePipelines[Int(particleBlendMode.rawValue)])
-            var params = params
-            var colorSource: UInt32 = particleColorSource == .atSpawn ? 1 : 0
-            encoder.setFragmentBytes(&params, length: MemoryLayout<ShaderParams>.stride, index: 0)
-            encoder.setFragmentBuffer(particleColorBuffer, offset: 0, index: 1)
-            encoder.setFragmentBytes(&colorSource, length: MemoryLayout<UInt32>.stride, index: 2)
-            encoder.setFragmentTexture(video, index: 0)
-            if let buffer = device.makeBuffer(
-                bytes: particleVertices,
-                length: particleVertices.count * MemoryLayout<OverlayVertex>.stride
-            ) {
-                encoder.setVertexBuffer(buffer, offset: 0, index: 0)
-                encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: particleVertices.count)
+        // Draw order follows the FX stack, so reordering Skeleton / Lines /
+        // Particles changes how they overlap. The mask pass below is
+        // order-independent, since every overlay writes the same value.
+        let layerOrder: [(order: UInt32, layer: Int)] = [
+            (effectOrderValue(.skeleton), 0),
+            (effectOrderValue(.lines), 1),
+            (effectOrderValue(.particles), 2),
+        ].sorted { $0.order == $1.order ? $0.layer < $1.layer : $0.order < $1.order }
+
+        for entry in layerOrder {
+            if entry.layer == 0, !skeletonVertices.isEmpty {
+                encoder.setRenderPipelineState(skeletonPipelines[Int(skeletonBlendMode.rawValue)])
+                var blendMode = skeletonBlendMode.rawValue
+                encoder.setFragmentBytes(&blendMode, length: MemoryLayout<UInt32>.stride, index: 1)
+                if let buffer = device.makeBuffer(
+                    bytes: skeletonVertices,
+                    length: skeletonVertices.count * MemoryLayout<OverlayVertex>.stride
+                ) {
+                    encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .line, vertexStart: 0, vertexCount: skeletonVertices.count)
+                }
+            } else if entry.layer == 1, !linesVertices.isEmpty {
+                encoder.setRenderPipelineState(linesPipelines[Int(linesBlendMode.rawValue)])
+                var params = params
+                encoder.setFragmentBytes(&params, length: MemoryLayout<ShaderParams>.stride, index: 0)
+                encoder.setFragmentTexture(video, index: 0)
+                if let buffer = device.makeBuffer(
+                    bytes: linesVertices,
+                    length: linesVertices.count * MemoryLayout<OverlayVertex>.stride
+                ) {
+                    encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: linesVertices.count)
+                }
+            } else if entry.layer == 2, !particleVertices.isEmpty, let particleColorBuffer {
+                encoder.setRenderPipelineState(particlePipelines[Int(particleBlendMode.rawValue)])
+                var params = params
+                var colorSource: UInt32 = particleColorSource == .atSpawn ? 1 : 0
+                encoder.setFragmentBytes(&params, length: MemoryLayout<ShaderParams>.stride, index: 0)
+                encoder.setFragmentBuffer(particleColorBuffer, offset: 0, index: 1)
+                encoder.setFragmentBytes(&colorSource, length: MemoryLayout<UInt32>.stride, index: 2)
+                encoder.setFragmentTexture(video, index: 0)
+                if let buffer = device.makeBuffer(
+                    bytes: particleVertices,
+                    length: particleVertices.count * MemoryLayout<OverlayVertex>.stride
+                ) {
+                    encoder.setVertexBuffer(buffer, offset: 0, index: 0)
+                    encoder.drawPrimitives(type: .point, vertexStart: 0, vertexCount: particleVertices.count)
+                }
             }
         }
         encoder.endEncoding()
@@ -2899,4 +3085,13 @@ private struct ShaderParams {
     var videoBlendMode: UInt32
     var liquidBlendMode: UInt32
     var particleBlendMode: UInt32
+    var kaleidoEnabled: UInt32
+    var kaleidoBlendMode: UInt32
+    var kaleidoSegments: UInt32
+    var kaleidoRotation: Float
+    var kaleidoSpeed: Float
+    var kaleidoZoom: Float
+    var kaleidoOpacity: Float
+    var kaleidoCenterX: Float
+    var kaleidoCenterY: Float
 }

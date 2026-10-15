@@ -1,0 +1,259 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="2660" viewBox="0 0 1660 2660">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2c3a4b"/></marker>
+<marker id="arrowA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3fd0c9"/></marker>
+<marker id="arrowW" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb02e"/></marker>
+<marker id="arrowV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8f7dff"/></marker>
+<marker id="arrowB" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4aa3ff"/></marker>
+<linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3fd0c9" stop-opacity="0.22"/><stop offset="1" stop-color="#3fd0c9" stop-opacity="0.02"/></linearGradient>
+</defs>
+<rect width="1660" height="2660" fill="#0f141b"/>
+<rect x="0" y="0" width="1660" height="96" fill="url(#hdr)"/>
+<text x="48" y="46" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="28" fill="#dbe6f2" font-weight="700" text-anchor="start" opacity="1">Kaleidoscope — processing change</text>
+<text x="48" y="74" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">MetalRenderer.swift  ·  a gather pass over the composited drawable, slotted by FX-stack order</text>
+<rect x="48" y="130" width="1564" height="188" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="162" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#4aa3ff" font-weight="700" text-anchor="start" opacity="1">1 · Acquisition  (per frame)</text>
+<rect x="72" y="182" width="200" height="54" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="172" y="208" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="middle" opacity="1">Camera frame</text>
+<text x="172" y="226" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">CVPixelBuffer</text>
+<line x1="276" y1="209" x2="348" y2="209" stroke="#4aa3ff" stroke-width="2.2" marker-end="url(#arrowB)"/>
+<rect x="352" y="182" width="240" height="54" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="472" y="208" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" fill="#dbe6f2" font-weight="600" text-anchor="middle" opacity="1">RVM matting (Core ML)</text>
+<text x="472" y="226" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">recurrent single pass</text>
+<line x1="596" y1="209" x2="668" y2="209" stroke="#4aa3ff" stroke-width="2.2" marker-end="url(#arrowB)"/>
+<rect x="672" y="174" width="210" height="76" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="688" y="200" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">source  (color)</text>
+<text x="688" y="222" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">alpha   (matte)</text>
+<text x="777" y="262" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">Metal textures</text>
+<rect x="948" y="182" width="250" height="54" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.4"/>
+<text x="1073" y="208" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#ffb02e" font-weight="600" text-anchor="middle" opacity="1">BodyPoseDetector.detect</text>
+<text x="1073" y="226" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">every 2nd frame · Vision</text>
+<line x1="1202" y1="209" x2="1274" y2="209" stroke="#ffb02e" stroke-width="2.2" marker-end="url(#arrowW)"/>
+<rect x="1278" y="174" width="306" height="76" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.4"/>
+<text x="1294" y="200" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">updatePose(_:)  →  latestPoses</text>
+<text x="1294" y="222" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">joints + confidence + track id</text>
+<text x="1431" y="262" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">fresh while ≤ 0.6 s old</text>
+<text x="72" y="298" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Both feed the same draw(): matting textures become the base image; latestPoses are read only when the anchor is a joint.</text>
+<rect x="48" y="348" width="1030" height="1120" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="380" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#8f7dff" font-weight="700" text-anchor="start" opacity="1">2 · Per-frame pass chain  →  one drawable texture</text>
+<text x="70" y="402" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Every pass reads and writes the same drawable. The Kaleidoscope (teal) can be placed at slot A, B or C.</text>
+<rect x="108" y="430" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="461.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="466.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">1</text>
+<text x="162" y="455" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">basePass</text>
+<text x="162" y="475" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">fills background into drawable  (mode 0/1 = original / matte)</text>
+<line x1="134" y1="493" x2="134" y2="521" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="522" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="553.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="558.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">2</text>
+<text x="162" y="547" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">signal snapshot</text>
+<text x="162" y="567" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">if trails on: half-res snapshot capture</text>
+<line x1="134" y1="585" x2="134" y2="613" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="614" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="645.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="650.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">3</text>
+<text x="162" y="639" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">trailPass  × cloneCount</text>
+<text x="162" y="659" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">historical clone layers composited onto drawable</text>
+<line x1="134" y1="677" x2="134" y2="705" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="706" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="737.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="742.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">4</text>
+<text x="162" y="731" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">subjectPass</text>
+<text x="162" y="751" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">composites subject; folds gradient / video / liquid by order</text>
+<line x1="134" y1="769" x2="134" y2="797" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="798" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="829.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="834.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">5</text>
+<text x="162" y="823" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">encodePoseOverlays</text>
+<text x="162" y="843" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">skeleton · lines · particles (vertex + fragment)</text>
+<line x1="134" y1="861" x2="134" y2="889" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="94" y="890" width="628" height="58" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="2.2" stroke-dasharray="7 5"/>
+<circle cx="134" cy="919.0" r="15" fill="#3fd0c9" opacity="0.20"/>
+<text x="134" y="924.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">A</text>
+<text x="162" y="914" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">KALEIDOSCOPE  (gather pass)</text>
+<text x="162" y="934" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">runs when: explosions enabled AND  i &lt; index(.clapExplosions)</text>
+<line x1="134" y1="949" x2="134" y2="977" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="978" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="1009.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="1014.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">6</text>
+<text x="162" y="1003" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">encodeClapExplosions</text>
+<text x="162" y="1023" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">per-clap video sprite composited</text>
+<line x1="134" y1="1041" x2="134" y2="1069" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="94" y="1070" width="628" height="58" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="2.2" stroke-dasharray="7 5"/>
+<circle cx="134" cy="1099.0" r="15" fill="#3fd0c9" opacity="0.20"/>
+<text x="134" y="1104.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">B</text>
+<text x="162" y="1094" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">KALEIDOSCOPE  (gather pass)</text>
+<text x="162" y="1114" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">runs when: NOT before-explosions AND  i &lt; index(.lineSampler)</text>
+<line x1="134" y1="1129" x2="134" y2="1157" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="1158" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="1189.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="1194.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">7</text>
+<text x="162" y="1183" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">encodeLineSampler</text>
+<text x="162" y="1203" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">blit + per-line strip composite + occupancy read</text>
+<line x1="134" y1="1221" x2="134" y2="1249" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="94" y="1250" width="628" height="58" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="2.2" stroke-dasharray="7 5"/>
+<circle cx="134" cy="1279.0" r="15" fill="#3fd0c9" opacity="0.20"/>
+<text x="134" y="1284.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">C</text>
+<text x="162" y="1274" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">KALEIDOSCOPE  (gather pass)</text>
+<text x="162" y="1294" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">runs when: NOT before-explosions AND NOT before-sampler (fallthrough)</text>
+<line x1="134" y1="1309" x2="134" y2="1337" stroke="#2c3a4b" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="108" y="1338" width="600" height="62" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.6"/>
+<circle cx="134" cy="1369.0" r="15" fill="#2c3a4b" opacity="0.16"/>
+<text x="134" y="1374.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#2c3a4b" font-weight="700" text-anchor="middle" opacity="1">8</text>
+<text x="162" y="1363" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">thumbnail capture  →  present(drawable)</text>
+<text x="162" y="1383" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">optional 640×360 CGImage; then swapchain</text>
+<text x="94" y="1430" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="0.95">Guard on every slot:  kaleidoscopeEnabled  AND  displayMode ≥ Foreground  (Original / Alpha Matte stay clean).</text>
+<rect x="1128" y="348" width="484" height="620" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="1148" y="380" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#54d17a" font-weight="700" text-anchor="start" opacity="1">3 · Ordering decision</text>
+<text x="1148" y="402" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">effectOrder = enabled effects, in stack order</text>
+<text x="1148" y="438" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">let kaleidoOrder  = index(.kaleidoscope)</text>
+<text x="1148" y="462" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">let kaleidoActive = enabled &amp;&amp; mode ≥ fg</text>
+<line x1="1148" y1="482" x2="1592" y2="482" stroke="#2c3a4b" stroke-width="1"/>
+<text x="1148" y="512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#54d17a" font-weight="400" text-anchor="start" opacity="1">runBeforeExplosions =</text>
+<text x="1168" y="532" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">explosionsOn &amp;&amp; kaleidoOrder</text>
+<text x="1168" y="550" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">             &lt; index(.clapExplosions)</text>
+<text x="1148" y="582" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#54d17a" font-weight="400" text-anchor="start" opacity="1">runBeforeSampler =</text>
+<text x="1168" y="602" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">samplerOn &amp;&amp; kaleidoOrder</text>
+<text x="1168" y="620" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">          &lt; index(.lineSampler)</text>
+<rect x="1148" y="642" width="444" height="116" rx="8" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="1164" y="668" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">slot = before-explosions ? A</text>
+<text x="1164" y="692" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">     : before-sampler      ? B</text>
+<text x="1164" y="716" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">     :                      C</text>
+<text x="1164" y="742" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">disabled stages are skipped, not sentinels</text>
+<text x="1148" y="788" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#54d17a" font-weight="700" text-anchor="start" opacity="1">Why it matters</text>
+<text x="1148" y="812" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Slot A / B → the Line Sampler captures</text>
+<text x="1148" y="830" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">unfolded pixels.</text>
+<text x="1148" y="854" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Slot C     → the sampler captures the</text>
+<text x="1148" y="872" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">folded image (lines feed on the fold).</text>
+<text x="1148" y="904" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">The fold always covers subject, trails</text>
+<text x="1148" y="922" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">and overlays — it cannot run beneath them.</text>
+<rect x="1128" y="990" width="484" height="488" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="1148" y="1022" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#8f7dff" font-weight="700" text-anchor="start" opacity="1">4 · Persisted state</text>
+<text x="1148" y="1044" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">EffectPreset fields — all optional, older presets decode cleanly</text>
+<text x="1150" y="1076" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeSegments: Int?</text>
+<text x="1150" y="1101" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeRotationDegrees: Double?</text>
+<text x="1150" y="1126" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeSpeed: Double?</text>
+<text x="1150" y="1151" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeZoom: Double?</text>
+<text x="1150" y="1176" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeOpacity: Double?</text>
+<text x="1150" y="1201" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeJoint: String?   // rawValue</text>
+<text x="1150" y="1226" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopePersonIndex: Int?</text>
+<text x="1150" y="1251" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeOffsetX: Double?</text>
+<text x="1150" y="1276" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeOffsetY: Double?</text>
+<line x1="1148" y1="1297" x2="1592" y2="1297" stroke="#2c3a4b" stroke-width="1"/>
+<text x="1148" y="1325" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">AppController @Published mirrors every field and</text>
+<text x="1148" y="1343" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">pushes them to the renderer via syncEffects().</text>
+<text x="1148" y="1373" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">effectBlendModes[.kaleidoscope] round-trips the</text>
+<text x="1148" y="1391" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">card's blend mode, layered over the Mix slider.</text>
+<rect x="1148" y="1409" width="444" height="62" rx="8" fill="#2a1f0e" stroke="#ffb02e" stroke-width="1.2"/>
+<text x="1164" y="1433" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">An unknown joint from a newer build</text>
+<text x="1164" y="1451" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">degrades to the frame center rather than</text>
+<text x="1164" y="1467" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">failing to decode the whole preset.</text>
+<rect x="48" y="1502" width="1564" height="300" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="1534" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">5 · Inside encodeKaleidoscope  (MetalRenderer.swift)</text>
+<rect x="88" y="1572" width="300" height="118" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.4"/>
+<text x="106" y="1604" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#8f7dff" font-weight="700" text-anchor="start" opacity="1">① blit</text>
+<text x="106" y="1630" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">drawable  →  scratch</text>
+<text x="106" y="1652" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">bgra8Unorm · private</text>
+<text x="106" y="1672" font-family="SF Mono, Menlo, Consolas, monospace" font-size="10.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">snapshot of everything so far</text>
+<line x1="400" y1="1631" x2="480" y2="1631" stroke="#3fd0c9" stroke-width="2.4" marker-end="url(#arrowA)"/>
+<rect x="484" y="1572" width="512" height="118" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="2.0"/>
+<text x="502" y="1604" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">② compute  kaleidoscopePass</text>
+<text x="502" y="1630" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">in  scratch (texture 0)   out  drawable (texture 1)</text>
+<text x="502" y="1652" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">params: kaleidoSegments/Rotation/Speed/</text>
+<text x="502" y="1670" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">        Zoom/Opacity/Blend/CenterX/Y</text>
+<line x1="1008" y1="1631" x2="1088" y2="1631" stroke="#3fd0c9" stroke-width="2.4" marker-end="url(#arrowA)"/>
+<rect x="1092" y="1572" width="500" height="118" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="1110" y="1604" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">③ result written back to drawable</text>
+<text x="1110" y="1632" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">folded = scratch.sample( kaleidoUV(uv) )</text>
+<text x="1110" y="1652" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">base   = scratch.sample( uv )</text>
+<text x="1110" y="1672" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">out    = trailBlend(base, folded,</text>
+<text x="1388" y="1672" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">opacity, blend)</text>
+<text x="88" y="1724" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">One full-resolution compute pass (single sample per pixel) + one blit, only while enabled. Wedge count is free; cost scales with output resolution.</text>
+<rect x="48" y="1836" width="950" height="560" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="1868" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">6 · The fold  —  kaleidoUV(uv, params)</text>
+<text x="70" y="1890" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">maps an output coordinate to the source pixel it reads</text>
+<text x="74" y="1920" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">float segments = max(2, kaleidoSegments);</text>
+<text x="74" y="1944" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">float2 p = uv - center;</text>
+<text x="74" y="1968" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">p.x *= viewAspect;                 // aspect-correct</text>
+<text x="74" y="1992" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">float r = length(p);</text>
+<text x="74" y="2016" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">float wedge = TWO_PI / segments;   // one wedge's angle</text>
+<text x="74" y="2064" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">float a = atan2(p.y, p.x)</text>
+<text x="74" y="2088" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">        + rotation + time*speed;   // base angle + spin</text>
+<text x="74" y="2136" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">a = fmod(a, wedge);                // fold into one wedge</text>
+<text x="74" y="2160" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">if (a &lt; 0) a += wedge;</text>
+<text x="74" y="2184" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">a = a &gt; wedge*0.5 ? wedge - a : a; // mirror  ← symmetry</text>
+<text x="74" y="2232" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">r *= max(0.05, zoom);              // radial scale</text>
+<text x="74" y="2256" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">float2 folded = float2(cos(a), sin(a)) * r;</text>
+<text x="74" y="2280" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">folded.x /= viewAspect;</text>
+<text x="74" y="2304" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">return folded + center;</text>
+<text x="838" y="2038" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">one wedge, mirrored</text>
+<circle cx="838" cy="2156" r="96" fill="#0e1f20" stroke="#2c3a4b" stroke-width="1.6"/>
+<line x1="838" y1="2156" x2="838.0" y2="2060.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<line x1="838" y1="2156" x2="921.1384387633061" y2="2108.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<line x1="838" y1="2156" x2="921.1384387633061" y2="2204.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<line x1="838" y1="2156" x2="838.0" y2="2252.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<line x1="838" y1="2156" x2="754.8615612366939" y2="2204.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<line x1="838" y1="2156" x2="754.8615612366939" y2="2108.0" stroke="#2c3a4b" stroke-width="1.2"/>
+<path d="M 838 2156 L 838.0 2060.0 A 96 96 0 0 1 921.1384387633061 2108.0 Z" fill="#3fd0c9" opacity="0.16" stroke="#3fd0c9" stroke-width="1.6"/>
+<line x1="838" y1="2156" x2="886.0" y2="2072.861561236694" stroke="#3fd0c9" stroke-width="1.4" stroke-dasharray="5 4"/>
+<circle cx="838" cy="2156" r="4" fill="#3fd0c9"/>
+<text x="838" y="2149" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10" fill="#3fd0c9" font-weight="400" text-anchor="middle" opacity="1">center</text>
+<text x="838" y="2278" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="middle" opacity="1">segments = 6 → wedge = 60°</text>
+<text x="838" y="2296" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#3fd0c9" font-weight="400" text-anchor="middle" opacity="1">dashed line = mirror axis</text>
+<rect x="1022" y="1836" width="590" height="560" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="1042" y="1868" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#ffb02e" font-weight="700" text-anchor="start" opacity="1">7 · Joint anchor  →  kaleidoCenter</text>
+<text x="1042" y="1906" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">kaleidoscopeCenter(poses, viewAspect)</text>
+<text x="1054" y="1936" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">joint == nil             → (0.5, 0.5)</text>
+<text x="1054" y="1960" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">personIndex out of range → (0.5, 0.5)</text>
+<text x="1054" y="1984" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">confidence &lt; 0.25        → (0.5, 0.5)</text>
+<text x="1054" y="2008" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">else  viewPosition(point)</text>
+<text x="1054" y="2032" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">      → mirror + aspect-fill to view UV</text>
+<text x="1054" y="2056" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">+ kaleidoscopeCenterOffset</text>
+<text x="1054" y="2080" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">→ params.kaleidoCenterX / Y</text>
+<line x1="1042" y1="2118" x2="1592" y2="2118" stroke="#2c3a4b" stroke-width="1"/>
+<text x="1042" y="2146" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#ffb02e" font-weight="700" text-anchor="start" opacity="1">Controls that drive it</text>
+<text x="1054" y="2172" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Anchor</text>
+<text x="1212" y="2172" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">frame center | any PoseJoint</text>
+<text x="1054" y="2198" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Body</text>
+<text x="1212" y="2198" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">1 … Max people</text>
+<text x="1054" y="2224" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Offset X / Y</text>
+<text x="1212" y="2224" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">±50 % of view</text>
+<text x="1054" y="2250" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Confidence gate</text>
+<text x="1212" y="2250" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">0.25 (fixed)</text>
+<text x="1054" y="2276" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">Pose cadence</text>
+<text x="1212" y="2276" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">every 2nd frame, ≤ 0.6 s old</text>
+<line x1="1042" y1="2310" x2="1592" y2="2310" stroke="#2c3a4b" stroke-width="1"/>
+<text x="1042" y="2336" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">poseEffectsEnabled now includes the kaleidoscope</text>
+<text x="1042" y="2354" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">when a joint is chosen, so tracking runs even</text>
+<text x="1042" y="2372" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">with no other pose effect active.</text>
+<rect x="48" y="2430" width="1564" height="150" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="2462" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15" fill="#8f7dff" font-weight="700" text-anchor="start" opacity="1">8 · Params appended to ShaderParams  (Swift struct ↔ MSL struct, identical field order)</text>
+<text x="82" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoEnabled</text>
+<text x="254" y="2512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">UInt32</text>
+<text x="382" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoBlendMode</text>
+<text x="554" y="2512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">UInt32</text>
+<text x="682" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoSegments</text>
+<text x="854" y="2512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">UInt32</text>
+<text x="982" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoRotation</text>
+<text x="1154" y="2512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<text x="1282" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoSpeed</text>
+<text x="1454" y="2512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<text x="82" y="2542" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoZoom</text>
+<text x="254" y="2542" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<text x="382" y="2542" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoOpacity</text>
+<text x="554" y="2542" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<text x="682" y="2542" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoCenterX</text>
+<text x="854" y="2542" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<text x="982" y="2542" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">kaleidoCenterY</text>
+<text x="1154" y="2542" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Float</text>
+<rect x="54" y="2600" width="16" height="16" rx="4" fill="#4aa3ff" opacity="0.85"/>
+<text x="80" y="2614" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">capture / Core ML</text>
+<rect x="236.8" y="2600" width="16" height="16" rx="4" fill="#8f7dff" opacity="0.85"/>
+<text x="262.8" y="2614" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">existing Metal pass</text>
+<rect x="432.40000000000003" y="2600" width="16" height="16" rx="4" fill="#3fd0c9" opacity="0.85"/>
+<text x="458.40000000000003" y="2614" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">new: kaleidoscope + fold</text>
+<rect x="660.0" y="2600" width="16" height="16" rx="4" fill="#ffb02e" opacity="0.85"/>
+<text x="686.0" y="2614" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">pose / joint anchor</text>
+<rect x="855.6" y="2600" width="16" height="16" rx="4" fill="#54d17a" opacity="0.85"/>
+<text x="881.6" y="2614" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">ordering decision</text>
+</svg>

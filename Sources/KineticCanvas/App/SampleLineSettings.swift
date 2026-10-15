@@ -155,6 +155,9 @@ struct SampleLineSettings: View {
                         arpPatternControl
                         arpSpeedControl
                     }
+                    if line.triggerMode != .singleShot {
+                        noteLengthControl
+                    }
                 }
                 Toggle("Lead instrument", isOn: Binding(get: { line.isLead }, set: { setLead($0) }))
                     .help("Transposes every other line by this line's active scale degree")
@@ -475,6 +478,20 @@ struct SampleLineSettings: View {
                 Text(rhythmLabel(value)).tag(value)
             }
         }
+    }
+
+    /// How much of each step a Rhythm or Arpeggio note sounds. Single Shot is
+    /// pixel-driven, so it has no length control.
+    private var noteLengthControl: some View {
+        HStack(spacing: 6) {
+            Text("Length")
+            CommitSlider(value: $line.noteLength, range: 0.05...1)
+                .frame(maxWidth: 118)
+            Text("\(Int((line.noteLength * 100).rounded()))%")
+                .monospacedDigit()
+                .frame(minWidth: 38, alignment: .trailing)
+        }
+        .help("How much of each step the note sounds. 100% is legato; lower values are staccato.")
     }
 
     private func rhythmLabel(_ value: Int) -> String {

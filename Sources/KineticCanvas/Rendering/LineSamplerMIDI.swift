@@ -296,7 +296,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
         active[line.id]?.keys.filter { $0 != segment }.forEach { stop(id: line.id, segment: $0) }
         stop(id: line.id, segment: segment)
         guard harmony.allows(pitches[segment], against: soundingPitches) else { return }
-        let gate = secondsPerStep * Double(max(1, line.arpRate)) * 0.5
+        let gate = secondsPerStep * Double(max(1, line.arpRate)) * line.noteLength
         let velocity = Self.velocity(forLevel: levels[line.id]?[segment] ?? 255)
         route(status: 0x90 | channel, pitch: pitches[segment], velocity: velocity,
               lineID: line.id, destination: line.destination)
@@ -429,7 +429,7 @@ final class LineSamplerMIDI: @unchecked Sendable {
                     guard (0..<16).contains(line.midiChannel) else { continue }
                     let channel = UInt8(line.midiChannel)
                     let mask = fresh ? (bitsets[line.id] ?? 0) : 0
-                    let gate = secondsPerStep * Double(max(1, line.rhythm)) * 0.5
+                    let gate = secondsPerStep * Double(max(1, line.rhythm)) * line.noteLength
                     let pitches = effectivePitches(for: line, leadDegree: lead)
                     let segments: [Int]
                     if line.isMonophonic {

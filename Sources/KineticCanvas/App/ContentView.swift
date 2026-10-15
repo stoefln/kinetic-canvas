@@ -172,9 +172,13 @@ struct ContentView: View {
                 Button("Randomize") { controller.randomizeEffects() }
 
                 Menu("Add Effect") {
-                    ForEach(EffectKind.allCases) { effect in
-                        Button(effect.label) { controller.addEffect(effect) }
-                            .disabled(controller.activeEffects.contains(effect))
+                    ForEach(PipelineStage.allCases, id: \.self) { stage in
+                        Section(stage.label) {
+                            ForEach(EffectKind.allCases.filter { $0.pipelineStage == stage }) { effect in
+                                Button(effect.label) { controller.addEffect(effect) }
+                                    .disabled(controller.activeEffects.contains(effect))
+                            }
+                        }
                     }
                 }
             }
@@ -183,7 +187,7 @@ struct ContentView: View {
                 Text("INPUT")
                 Image(systemName: "arrow.down")
                 Text("OUTPUT")
-                Text("Effects lower in the list process the output of effects above them.")
+                Text("Order matters inside a stage. The stage order itself is fixed.")
                     .foregroundStyle(.secondary)
             }
             .font(.caption)
@@ -191,8 +195,8 @@ struct ContentView: View {
             // The stack is small (one row per effect). Keeping rows alive avoids
             // repeatedly constructing AppKit-backed sliders while scrolling.
             VStack(spacing: 8) {
-                ForEach(controller.activeEffects) { effect in
-                    effectRow(effect)
+                ForEach(PipelineStage.allCases, id: \.self) { stage in
+                    stageSection(stage)
                 }
             }
         }
@@ -220,6 +224,13 @@ struct ContentView: View {
                     Text(effect.label)
                         .font(.system(.headline, design: .rounded, weight: .bold))
 
+                    if !effect.canReorder {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                            .help("\(effect.label) always runs in a fixed slot, so reordering it would not change the output.")
+                    }
+
                     Spacer(minLength: 0)
 
                     Button {
@@ -228,8 +239,10 @@ struct ContentView: View {
                         Image(systemName: "arrow.up")
                     }
                     .buttonStyle(.plain)
-                    .disabled(controller.activeEffects.first == effect)
-                    .help("Move earlier")
+                    .disabled(!controller.canMove(effect, by: -1))
+                    .help(controller.canMove(effect, by: -1)
+                          ? "Move earlier within this stage"
+                          : "Cannot move: \(effect.canReorder ? "already first in its stage" : "this effect's slot is fixed")")
 
                     Button {
                         controller.moveEffect(effect, by: 1)
@@ -237,8 +250,10 @@ struct ContentView: View {
                         Image(systemName: "arrow.down")
                     }
                     .buttonStyle(.plain)
-                    .disabled(controller.activeEffects.last == effect)
-                    .help("Move later")
+                    .disabled(!controller.canMove(effect, by: 1))
+                    .help(controller.canMove(effect, by: 1)
+                          ? "Move later within this stage"
+                          : "Cannot move: \(effect.canReorder ? "already last in its stage" : "this effect's slot is fixed")")
                 }
 
                 HStack(spacing: 9) {
@@ -304,6 +319,41 @@ struct ContentView: View {
         }
     }
 
+    /// One pipeline stage's header plus its effect rows. Stages are rendered in
+    /// their fixed order, which is exactly the order the renderer applies them in,
+    /// so the list reads top-to-bottom as the real processing order.
+    @ViewBuilder
+    private func stageSection(_ stage: PipelineStage) -> some View {
+        let effects = controller.effects(in: stage)
+        if !effects.isEmpty {
+            HStack(spacing: 8) {
+                Image(systemName: stage == .image ? "photo.stack" : "wand.and.stars")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Text(stage.label.uppercased())
+                    .font(.caption.weight(.bold))
+                    .tracking(1.1)
+                Text(stage.blurb)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(Color.secondary.opacity(0.10))
+            .clipShape(RoundedRectangle(cornerRadius: 7))
+            .overlay {
+                RoundedRectangle(cornerRadius: 7)
+                    .stroke(Color.secondary.opacity(0.28), lineWidth: 1)
+            }
+
+            ForEach(effects) { effect in
+                effectRow(effect)
+            }
+        }
+    }
+
     @ViewBuilder
     private func effectParameters(_ effect: EffectKind) -> some View {
         switch effect {
@@ -353,6 +403,46 @@ struct ContentView: View {
                              display: String(format: "%.1f", controller.liquidScale), enabled: true)
                 effectSlider("Speed", value: $controller.liquidSpeed, range: 0...3,
                              display: String(format: "%.1fx", controller.liquidSpeed), enabled: true)
+            }
+
+        case .kaleidoscope:
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Mirrors the output into wedges around an anchor. Folds everything beneath it in the FX stack, so its position decides what it captures.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                AdaptiveFlowLayout(horizontalSpacing: 14) {
+                    Stepper("\(controller.kaleidoscopeSegments) wedges",
+                            value: $controller.kaleidoscopeSegments, in: 2...24)
+                        .frame(width: 165)
+                    effectSlider("Rotation", value: $controller.kaleidoscopeRotationDegrees, range: -180...180,
+                                 display: "\(Int(controller.kaleidoscopeRotationDegrees))°", enabled: true)
+                    effectSlider("Spin", value: $controller.kaleidoscopeSpeed, range: -2...2,
+                                 display: String(format: "%+.2f", controller.kaleidoscopeSpeed), enabled: true)
+                    effectSlider("Zoom", value: $controller.kaleidoscopeZoom, range: 0.2...4,
+                                 display: String(format: "%.2fx", controller.kaleidoscopeZoom), enabled: true)
+                    effectSlider("Mix", value: $controller.kaleidoscopeOpacity, range: 0...1,
+                                 display: "\(Int(controller.kaleidoscopeOpacity * 100))%", enabled: true)
+                }
+                AdaptiveFlowLayout(horizontalSpacing: 14) {
+                    Picker("Anchor", selection: $controller.kaleidoscopeJoint) {
+                        Text("Frame center").tag(PoseJoint?.none)
+                        ForEach(PoseJoint.allCases, id: \.self) { joint in
+                            Text(joint.displayLabel).tag(PoseJoint?.some(joint))
+                        }
+                    }
+                    .frame(width: 190)
+                    .help("Joint the mirror center follows. Falls back to the frame center when the joint is not confidently tracked.")
+                    Stepper("Body \(controller.kaleidoscopePersonIndex + 1)",
+                            value: $controller.kaleidoscopePersonIndex,
+                            in: 0...max(0, controller.maxPeople - 1))
+                        .frame(width: 150)
+                        .disabled(controller.kaleidoscopeJoint == nil)
+                        .help("Which tracked body to read the joint from, in prominence order.")
+                    effectSlider("Offset X", value: $controller.kaleidoscopeOffsetX, range: -50...50,
+                                 display: String(format: "%+.0f%%", controller.kaleidoscopeOffsetX), enabled: true)
+                    effectSlider("Offset Y", value: $controller.kaleidoscopeOffsetY, range: -50...50,
+                                 display: String(format: "%+.0f%%", controller.kaleidoscopeOffsetY), enabled: true)
+                }
             }
 
         case .liveVideoFill, .flowers:
@@ -806,5 +896,43 @@ private struct MetricsRow: View {
     private func metric(_ name: String, _ value: Double, _ unit: String) -> some View {
         Text("\(name)  \(value, format: .number.precision(.fractionLength(1))) \(unit)")
             .monospacedDigit()
+    }
+}
+
+/// Human-readable joint names for the Kaleidoscope anchor picker. `PoseJoint`'s
+/// raw values are Vision debug names ("leftWrist"), which read poorly in a menu.
+private extension PoseJoint {
+    var displayLabel: String {
+        switch self {
+        case .nose: "Nose"
+        case .leftEye: "Left eye"
+        case .rightEye: "Right eye"
+        case .leftEar: "Left ear"
+        case .rightEar: "Right ear"
+        case .neck: "Neck"
+        case .root: "Torso root"
+        case .leftShoulder: "Left shoulder"
+        case .leftElbow: "Left elbow"
+        case .leftWrist: "Left wrist"
+        case .rightShoulder: "Right shoulder"
+        case .rightElbow: "Right elbow"
+        case .rightWrist: "Right wrist"
+        case .leftHip: "Left hip"
+        case .leftKnee: "Left knee"
+        case .leftAnkle: "Left ankle"
+        case .rightHip: "Right hip"
+        case .rightKnee: "Right knee"
+        case .rightAnkle: "Right ankle"
+        case .leftThumbTip: "Left thumb"
+        case .leftIndexTip: "Left index finger"
+        case .leftMiddleTip: "Left middle finger"
+        case .leftRingTip: "Left ring finger"
+        case .leftLittleTip: "Left little finger"
+        case .rightThumbTip: "Right thumb"
+        case .rightIndexTip: "Right index finger"
+        case .rightMiddleTip: "Right middle finger"
+        case .rightRingTip: "Right ring finger"
+        case .rightLittleTip: "Right little finger"
+        }
     }
 }

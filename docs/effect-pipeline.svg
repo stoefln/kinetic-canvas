@@ -1,0 +1,295 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1660" height="2760" viewBox="0 0 1660 2760">
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#2c3a4b"/></marker>
+<marker id="arrowSeed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#54d17a"/></marker>
+<marker id="arrowT" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#4aa3ff"/></marker>
+<marker id="arrowV" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#8f7dff"/></marker>
+<marker id="arrowF" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#ffb02e"/></marker>
+<marker id="arrowK" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3fd0c9"/></marker>
+<linearGradient id="hdr" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#3fd0c9" stop-opacity="0.22"/><stop offset="1" stop-color="#3fd0c9" stop-opacity="0.02"/></linearGradient>
+</defs>
+<rect width="1660" height="2760" fill="#0f141b"/>
+<rect x="0" y="0" width="1660" height="96" fill="url(#hdr)"/>
+<text x="48" y="46" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="28" fill="#dbe6f2" font-weight="700" text-anchor="start" opacity="1">Kinetic Canvas — the effect pipeline</text>
+<text x="48" y="74" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Every effect is one function:  (input image, params, aux) → output image.  Order = position in the FX stack.</text>
+<rect x="48" y="122" width="1564" height="148" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="154" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">1 · The contract</text>
+<rect x="88" y="188.0" width="118" height="52" rx="10" fill="#1b2431" stroke="#54d17a" stroke-width="1.6"/>
+<text x="147.0" y="212" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#54d17a" font-weight="600" text-anchor="middle" opacity="1">I₀  input</text>
+<text x="147.0" y="229" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">prev output</text>
+<text x="232" y="219" font-family="SF Mono, Menlo, Consolas, monospace" font-size="22" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">→</text>
+<rect x="268" y="188.0" width="150" height="52" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="2.0"/>
+<text x="343" y="210" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="15" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">FXᵢ</text>
+<text x="343" y="229" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">reads in · writes out</text>
+<text x="444" y="219" font-family="SF Mono, Menlo, Consolas, monospace" font-size="22" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">→</text>
+<rect x="480" y="188.0" width="118" height="52" rx="10" fill="#1b2431" stroke="#54d17a" stroke-width="1.6"/>
+<text x="539.0" y="212" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#54d17a" font-weight="600" text-anchor="middle" opacity="1">Iᵢ₊₁  output</text>
+<text x="539.0" y="229" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">next input</text>
+<text x="628" y="212" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">The same texture flows through; each stage owns one transform.</text>
+<text x="628" y="232" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Reorder the stack  →  reorder the functions. No hidden state between FX.</text>
+<rect x="48" y="300" width="1564" height="1180" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="332" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#dbe6f2" font-weight="700" text-anchor="start" opacity="1">2 · The full pipeline — every effect as an input → output node</text>
+<text x="70" y="354" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Default order shown. Each node names the image it consumes (IN) and the image it produces (OUT); the renderer decides which nodes share a GPU pass.</text>
+<rect x="168" y="396" width="940" height="74" rx="10" fill="#121a24" stroke="#54d17a" stroke-width="1.7"/>
+<circle cx="198" cy="433.0" r="16" fill="#54d17a" opacity="0.16"/>
+<text x="198" y="438.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#54d17a" font-weight="700" text-anchor="middle" opacity="1">0</text>
+<text x="226" y="424" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Composite subject over background</text>
+<rect x="504.0" y="410" width="44.04" height="20" rx="10" fill="#54d17a" opacity="0.18"/>
+<text x="526.02" y="424" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#54d17a" font-weight="600" text-anchor="middle" opacity="1">seed</text>
+<text x="226" y="450" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I0  camera+alpha</text>
+<text x="418" y="450" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I1</text>
+<text x="638" y="450" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">foreground × matte over background</text>
+<text x="1092" y="426" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#54d17a" font-weight="600" text-anchor="end" opacity="1">1 fused pass</text>
+<circle cx="118" cy="433.0" r="4" fill="#54d17a"/>
+<text x="104" y="437.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I0  camera+alpha</text>
+<line x1="118" y1="471" x2="118" y2="483" stroke="#54d17a" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="484" width="940" height="74" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.7"/>
+<circle cx="198" cy="521.0" r="16" fill="#4aa3ff" opacity="0.16"/>
+<text x="198" y="526.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#4aa3ff" font-weight="700" text-anchor="middle" opacity="1">1</text>
+<text x="226" y="512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Gradient Overlay</text>
+<rect x="368.0" y="498" width="76.59" height="20" rx="10" fill="#4aa3ff" opacity="0.18"/>
+<text x="406.295" y="512" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">transform</text>
+<text x="226" y="538" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I1</text>
+<text x="418" y="538" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I2</text>
+<text x="638" y="538" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">tint by gradient ramp</text>
+<text x="1092" y="514" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#4aa3ff" font-weight="600" text-anchor="end" opacity="1">fused</text>
+<circle cx="118" cy="521.0" r="4" fill="#4aa3ff"/>
+<text x="104" y="525.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I1</text>
+<line x1="118" y1="559" x2="118" y2="571" stroke="#4aa3ff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="572" width="940" height="74" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.7"/>
+<circle cx="198" cy="609.0" r="16" fill="#4aa3ff" opacity="0.16"/>
+<text x="198" y="614.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#4aa3ff" font-weight="700" text-anchor="middle" opacity="1">2</text>
+<text x="226" y="600" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Video Fill</text>
+<rect x="320.0" y="586" width="76.59" height="20" rx="10" fill="#4aa3ff" opacity="0.18"/>
+<text x="358.295" y="600" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">transform</text>
+<text x="226" y="626" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I2</text>
+<text x="418" y="626" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I3</text>
+<text x="638" y="626" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">blend video texture</text>
+<text x="1092" y="602" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#4aa3ff" font-weight="600" text-anchor="end" opacity="1">fused</text>
+<circle cx="118" cy="609.0" r="4" fill="#4aa3ff"/>
+<text x="104" y="613.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I2</text>
+<line x1="118" y1="647" x2="118" y2="659" stroke="#4aa3ff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="660" width="940" height="74" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.7"/>
+<circle cx="198" cy="697.0" r="16" fill="#4aa3ff" opacity="0.16"/>
+<text x="198" y="702.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#4aa3ff" font-weight="700" text-anchor="middle" opacity="1">3</text>
+<text x="226" y="688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Liquid Distortion</text>
+<rect x="376.0" y="674" width="76.59" height="20" rx="10" fill="#4aa3ff" opacity="0.18"/>
+<text x="414.295" y="688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">transform</text>
+<text x="226" y="714" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I3</text>
+<text x="418" y="714" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I4</text>
+<text x="638" y="714" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">warp sampling UV</text>
+<text x="1092" y="690" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#4aa3ff" font-weight="600" text-anchor="end" opacity="1">fused</text>
+<circle cx="118" cy="697.0" r="4" fill="#4aa3ff"/>
+<text x="104" y="701.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I3</text>
+<line x1="118" y1="735" x2="118" y2="747" stroke="#4aa3ff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="748" width="940" height="74" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.7"/>
+<circle cx="198" cy="785.0" r="16" fill="#ffb02e" opacity="0.16"/>
+<text x="198" y="790.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#ffb02e" font-weight="700" text-anchor="middle" opacity="1">4</text>
+<text x="226" y="776" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Historical Trail</text>
+<rect x="368.0" y="762" width="70.08" height="20" rx="10" fill="#ffb02e" opacity="0.18"/>
+<text x="403.04" y="776" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#ffb02e" font-weight="600" text-anchor="middle" opacity="1">feedback</text>
+<text x="226" y="802" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I4</text>
+<text x="418" y="802" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I5</text>
+<text x="638" y="802" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">ring of past snapshots</text>
+<text x="1092" y="778" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#ffb02e" font-weight="600" text-anchor="end" opacity="1">N passes</text>
+<circle cx="118" cy="785.0" r="4" fill="#ffb02e"/>
+<text x="104" y="789.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I4</text>
+<line x1="118" y1="823" x2="118" y2="835" stroke="#ffb02e" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="836" width="940" height="74" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.7"/>
+<circle cx="198" cy="873.0" r="16" fill="#8f7dff" opacity="0.16"/>
+<text x="198" y="878.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#8f7dff" font-weight="700" text-anchor="middle" opacity="1">5</text>
+<text x="226" y="864" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Skeleton</text>
+<rect x="304.0" y="850" width="76.59" height="20" rx="10" fill="#8f7dff" opacity="0.18"/>
+<text x="342.295" y="864" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8f7dff" font-weight="600" text-anchor="middle" opacity="1">composite</text>
+<text x="226" y="890" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I5</text>
+<text x="418" y="890" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I6</text>
+<text x="638" y="890" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">bone quads</text>
+<text x="1092" y="866" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#8f7dff" font-weight="600" text-anchor="end" opacity="1">1 pass</text>
+<circle cx="118" cy="873.0" r="4" fill="#8f7dff"/>
+<text x="104" y="877.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I5</text>
+<line x1="118" y1="911" x2="118" y2="923" stroke="#8f7dff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="924" width="940" height="74" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.7"/>
+<circle cx="198" cy="961.0" r="16" fill="#8f7dff" opacity="0.16"/>
+<text x="198" y="966.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#8f7dff" font-weight="700" text-anchor="middle" opacity="1">6</text>
+<text x="226" y="952" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Lines</text>
+<rect x="280.0" y="938" width="76.59" height="20" rx="10" fill="#8f7dff" opacity="0.18"/>
+<text x="318.295" y="952" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8f7dff" font-weight="600" text-anchor="middle" opacity="1">composite</text>
+<text x="226" y="978" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I6</text>
+<text x="418" y="978" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I7</text>
+<text x="638" y="978" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">nearest-neighbour mesh</text>
+<text x="1092" y="954" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#8f7dff" font-weight="600" text-anchor="end" opacity="1">1 pass</text>
+<circle cx="118" cy="961.0" r="4" fill="#8f7dff"/>
+<text x="104" y="965.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I6</text>
+<line x1="118" y1="999" x2="118" y2="1011" stroke="#8f7dff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="1012" width="940" height="74" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.7"/>
+<circle cx="198" cy="1049.0" r="16" fill="#8f7dff" opacity="0.16"/>
+<text x="198" y="1054.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#8f7dff" font-weight="700" text-anchor="middle" opacity="1">7</text>
+<text x="226" y="1040" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Particles</text>
+<rect x="312.0" y="1026" width="76.59" height="20" rx="10" fill="#8f7dff" opacity="0.18"/>
+<text x="350.295" y="1040" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8f7dff" font-weight="600" text-anchor="middle" opacity="1">composite</text>
+<text x="226" y="1066" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I7</text>
+<text x="418" y="1066" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I8</text>
+<text x="638" y="1066" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">point sprites</text>
+<text x="1092" y="1042" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#8f7dff" font-weight="600" text-anchor="end" opacity="1">1 pass</text>
+<circle cx="118" cy="1049.0" r="4" fill="#8f7dff"/>
+<text x="104" y="1053.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I7</text>
+<line x1="118" y1="1087" x2="118" y2="1099" stroke="#8f7dff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<line x1="152" y1="1093" x2="1124" y2="1093" stroke="#ffb02e" stroke-width="1.5" stroke-dasharray="6 5"/>
+<text x="1138" y="1112" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#6f8794" font-weight="600" text-anchor="start" opacity="1">↑ IMAGE pipeline</text>
+<text x="1138" y="1130" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">the frame is composited here;</text>
+<text x="1138" y="1145" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">reorder freely inside the stage</text>
+<text x="1138" y="1175" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#ffb02e" font-weight="600" text-anchor="start" opacity="1">↓ POST</text>
+<text x="1138" y="1193" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">sees the finished frame; always</text>
+<text x="1138" y="1208" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">runs last — the boundary is fixed</text>
+<rect x="168" y="1100" width="940" height="74" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.7"/>
+<circle cx="198" cy="1137.0" r="16" fill="#8f7dff" opacity="0.16"/>
+<text x="198" y="1142.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#8f7dff" font-weight="700" text-anchor="middle" opacity="1">8</text>
+<text x="226" y="1128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Clap Explosions</text>
+<rect x="360.0" y="1114" width="76.59" height="20" rx="10" fill="#8f7dff" opacity="0.18"/>
+<text x="398.295" y="1128" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#8f7dff" font-weight="600" text-anchor="middle" opacity="1">composite</text>
+<text x="226" y="1154" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I8</text>
+<text x="418" y="1154" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I9</text>
+<text x="638" y="1154" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">video sprite</text>
+<text x="1092" y="1130" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#8f7dff" font-weight="600" text-anchor="end" opacity="1">1 pass</text>
+<circle cx="118" cy="1137.0" r="4" fill="#8f7dff"/>
+<text x="104" y="1141.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I8</text>
+<line x1="118" y1="1175" x2="118" y2="1187" stroke="#8f7dff" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="1188" width="940" height="74" rx="10" fill="#1b2431" stroke="#3fd0c9" stroke-width="1.7"/>
+<circle cx="198" cy="1225.0" r="16" fill="#3fd0c9" opacity="0.16"/>
+<text x="198" y="1230.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#3fd0c9" font-weight="700" text-anchor="middle" opacity="1">9</text>
+<text x="226" y="1216" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Kaleidoscope</text>
+<rect x="336.0" y="1202" width="57.06" height="20" rx="10" fill="#3fd0c9" opacity="0.18"/>
+<text x="364.53" y="1216" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#3fd0c9" font-weight="600" text-anchor="middle" opacity="1">gather</text>
+<text x="226" y="1242" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I9</text>
+<text x="418" y="1242" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I10</text>
+<text x="638" y="1242" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">fold output of I9</text>
+<text x="1092" y="1218" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#3fd0c9" font-weight="600" text-anchor="end" opacity="1">blit + 1 pass</text>
+<circle cx="118" cy="1225.0" r="4" fill="#3fd0c9"/>
+<text x="104" y="1229.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I9</text>
+<line x1="118" y1="1263" x2="118" y2="1275" stroke="#3fd0c9" stroke-width="1.8" marker-end="url(#arrow)"/>
+<rect x="168" y="1276" width="940" height="74" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.7"/>
+<circle cx="198" cy="1313.0" r="16" fill="#ffb02e" opacity="0.16"/>
+<text x="198" y="1318.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#ffb02e" font-weight="700" text-anchor="middle" opacity="1">10</text>
+<text x="226" y="1304" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">Line Sampler</text>
+<rect x="336.0" y="1290" width="70.08" height="20" rx="10" fill="#ffb02e" opacity="0.18"/>
+<text x="371.04" y="1304" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#ffb02e" font-weight="600" text-anchor="middle" opacity="1">feedback</text>
+<text x="226" y="1330" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I10</text>
+<text x="418" y="1330" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT I11</text>
+<text x="638" y="1330" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">strip history</text>
+<text x="1092" y="1306" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#ffb02e" font-weight="600" text-anchor="end" opacity="1">1 pass × lines</text>
+<circle cx="118" cy="1313.0" r="4" fill="#ffb02e"/>
+<text x="104" y="1317.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I10</text>
+<rect x="168" y="1364" width="940" height="74" rx="10" fill="#121a24" stroke="#54d17a" stroke-width="1.7"/>
+<circle cx="198" cy="1401.0" r="16" fill="#54d17a" opacity="0.16"/>
+<text x="198" y="1406.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#54d17a" font-weight="700" text-anchor="middle" opacity="1">11</text>
+<text x="226" y="1392" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="14.5" fill="#dbe6f2" font-weight="600" text-anchor="start" opacity="1">present(drawable)</text>
+<rect x="376.0" y="1378" width="44.04" height="20" rx="10" fill="#54d17a" opacity="0.18"/>
+<text x="398.02" y="1392" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#54d17a" font-weight="600" text-anchor="middle" opacity="1">seed</text>
+<text x="226" y="1418" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">IN  I11</text>
+<text x="418" y="1418" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">OUT —</text>
+<text x="638" y="1418" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">screen</text>
+<text x="1092" y="1394" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#54d17a" font-weight="600" text-anchor="end" opacity="1">swapchain</text>
+<circle cx="118" cy="1401.0" r="4" fill="#54d17a"/>
+<text x="104" y="1405.0" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="10.5" fill="#6f8794" font-weight="400" text-anchor="end" opacity="1">I11</text>
+<line x1="118" y1="1439" x2="118" y2="1451" stroke="#54d17a" stroke-width="1.8" marker-end="url(#arrow)"/>
+<path d="M 148 396 h -12 v 338 h 12" fill="none" stroke="#4aa3ff" stroke-width="2" stroke-dasharray="6 4"/>
+<text x="130" y="565.0" font-family="SF Mono, Menlo, Consolas, monospace" font-size="10.5" fill="#4aa3ff" font-weight="400" text-anchor="middle" opacity="1">fused into one kernel</text>
+<rect x="48" y="1510" width="1564" height="430" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="1542" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">3 · How the renderer realizes the chain</text>
+<text x="70" y="1564" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Adjacent transforms share a pass (fusion). Every other category owns a real pass. Textures ping-pong so a pass never reads what it writes.</text>
+<rect x="78" y="1602" width="860" height="120" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="96" y="1630" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#4aa3ff" font-weight="600" text-anchor="start" opacity="1">segments the scheduler can fuse</text>
+<rect x="104" y="1644" width="130" height="56" rx="10" fill="#0e1f20" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="169" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">Gradient</text>
+<text x="169" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">transform</text>
+<text x="241" y="1678" font-family="SF Mono, Menlo, Consolas, monospace" font-size="16" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">→</text>
+<rect x="254" y="1644" width="130" height="56" rx="10" fill="#0e1f20" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="319" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">Video</text>
+<text x="319" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">transform</text>
+<text x="391" y="1678" font-family="SF Mono, Menlo, Consolas, monospace" font-size="16" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">→</text>
+<rect x="404" y="1644" width="130" height="56" rx="10" fill="#0e1f20" stroke="#4aa3ff" stroke-width="1.4"/>
+<text x="469" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#4aa3ff" font-weight="600" text-anchor="middle" opacity="1">Liquid</text>
+<text x="469" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9.5" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">transform</text>
+<text x="556" y="1678" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#4aa3ff" font-weight="400" text-anchor="start" opacity="1">⟶  executed as ONE compute dispatch</text>
+<rect x="958" y="1602" width="624" height="120" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="976" y="1630" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#89a7ad" font-weight="600" text-anchor="start" opacity="1">categories that need their own pass</text>
+<rect x="978" y="1644" width="176" height="56" rx="10" fill="#0e1f20" stroke="#8f7dff" stroke-width="1.4"/>
+<text x="1066" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#8f7dff" font-weight="600" text-anchor="middle" opacity="1">composite</text>
+<text x="1066" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">geometry / history / resample</text>
+<rect x="1174" y="1644" width="176" height="56" rx="10" fill="#0e1f20" stroke="#ffb02e" stroke-width="1.4"/>
+<text x="1262" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#ffb02e" font-weight="600" text-anchor="middle" opacity="1">feedback</text>
+<text x="1262" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">geometry / history / resample</text>
+<rect x="1370" y="1644" width="176" height="56" rx="10" fill="#0e1f20" stroke="#3fd0c9" stroke-width="1.4"/>
+<text x="1458" y="1670" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#3fd0c9" font-weight="600" text-anchor="middle" opacity="1">gather</text>
+<text x="1458" y="1688" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="9" fill="#6f8794" font-weight="400" text-anchor="middle" opacity="1">geometry / history / resample</text>
+<text x="78" y="1760" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12.5" fill="#3fd0c9" font-weight="600" text-anchor="start" opacity="1">buffers</text>
+<rect x="168" y="1742" width="280" height="44" rx="10" fill="#1b2431" stroke="#3fd0c9" stroke-width="1.2"/>
+<text x="184" y="1766" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">A / B</text>
+<text x="238" y="1766" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">ping-pong colour</text>
+<rect x="468" y="1742" width="280" height="44" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.2"/>
+<text x="484" y="1766" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">ring</text>
+<text x="538" y="1766" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">trail + strip history</text>
+<rect x="768" y="1742" width="280" height="44" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.2"/>
+<text x="784" y="1766" font-family="SF Mono, Menlo, Consolas, monospace" font-size="12" fill="#4aa3ff" font-weight="400" text-anchor="start" opacity="1">aux</text>
+<text x="838" y="1766" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">camera · alpha · video</text>
+<text x="78" y="1838" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">Cost rule:  bandwidth = passes × resolution.  Fusion is not an optimisation bolted on — it is how the model stays affordable.</text>
+<rect x="48" y="1980" width="1564" height="330" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="2012" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#dbe6f2" font-weight="700" text-anchor="start" opacity="1">4 · Effect categories</text>
+<rect x="78" y="2050" width="1500" height="44" rx="10" fill="#1b2431" stroke="#54d17a" stroke-width="1.2"/>
+<rect x="78" y="2050" width="6" height="44" rx="3" fill="#54d17a"/>
+<text x="100" y="2077" font-family="SF Mono, Menlo, Consolas, monospace" font-size="13" fill="#54d17a" font-weight="400" text-anchor="start" opacity="1">seed</text>
+<text x="258" y="2077" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">produces the starting image</text>
+<text x="668" y="2077" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">camera × matte over background</text>
+<rect x="78" y="2100" width="1500" height="44" rx="10" fill="#1b2431" stroke="#4aa3ff" stroke-width="1.2"/>
+<rect x="78" y="2100" width="6" height="44" rx="3" fill="#4aa3ff"/>
+<text x="100" y="2127" font-family="SF Mono, Menlo, Consolas, monospace" font-size="13" fill="#4aa3ff" font-weight="400" text-anchor="start" opacity="1">transform</text>
+<text x="258" y="2127" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">pixel-local map of the image</text>
+<text x="668" y="2127" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Gradient · Video · Liquid · (colour grade)</text>
+<rect x="78" y="2150" width="1500" height="44" rx="10" fill="#1b2431" stroke="#8f7dff" stroke-width="1.2"/>
+<rect x="78" y="2150" width="6" height="44" rx="3" fill="#8f7dff"/>
+<text x="100" y="2177" font-family="SF Mono, Menlo, Consolas, monospace" font-size="13" fill="#8f7dff" font-weight="400" text-anchor="start" opacity="1">composite</text>
+<text x="258" y="2177" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">draws new geometry on top</text>
+<text x="668" y="2177" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Skeleton · Lines · Particles · Explosions</text>
+<rect x="78" y="2200" width="1500" height="44" rx="10" fill="#1b2431" stroke="#ffb02e" stroke-width="1.2"/>
+<rect x="78" y="2200" width="6" height="44" rx="3" fill="#ffb02e"/>
+<text x="100" y="2227" font-family="SF Mono, Menlo, Consolas, monospace" font-size="13" fill="#ffb02e" font-weight="400" text-anchor="start" opacity="1">feedback</text>
+<text x="258" y="2227" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">reads past frames</text>
+<text x="668" y="2227" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Historical Trail · Line Sampler</text>
+<rect x="78" y="2250" width="1500" height="44" rx="10" fill="#1b2431" stroke="#3fd0c9" stroke-width="1.2"/>
+<rect x="78" y="2250" width="6" height="44" rx="3" fill="#3fd0c9"/>
+<text x="100" y="2277" font-family="SF Mono, Menlo, Consolas, monospace" font-size="13" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">gather</text>
+<text x="258" y="2277" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">re-samples the image by coordinate</text>
+<text x="668" y="2277" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Kaleidoscope</text>
+<rect x="48" y="2350" width="1564" height="300" rx="14" fill="#161d27" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="70" y="2382" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="16" fill="#ffb02e" font-weight="700" text-anchor="start" opacity="1">5 · Ordering — today vs the explicit model</text>
+<rect x="78" y="2406" width="740" height="220" rx="10" fill="#1b2431" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="98" y="2436" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#89a7ad" font-weight="700" text-anchor="start" opacity="1">TODAY  (implicit)</text>
+<text x="98" y="2468" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">effectOrder: [EffectKind]   // enabled, in order</text>
+<text x="98" y="2492" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">gradientOrder  = index(.gradientOverlay)</text>
+<text x="98" y="2512" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">liquidOrder    = index(.liquidDistortion)</text>
+<text x="98" y="2532" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">videoOrder     = index(.liveVideoFill)</text>
+<text x="98" y="2552" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">linesOrder / particleOrder / historicalOrder</text>
+<text x="98" y="2572" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#6f8794" font-weight="400" text-anchor="start" opacity="1">processingLimitOrder</text>
+<text x="98" y="2600" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Shaders compare these integers per pixel to decide</text>
+<text x="98" y="2618" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">who has already run. Ordering lives inside kernels.</text>
+<rect x="842" y="2406" width="740" height="220" rx="10" fill="#0e1f20" stroke="#2c3a4b" stroke-width="1.4"/>
+<text x="862" y="2436" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="13" fill="#3fd0c9" font-weight="700" text-anchor="start" opacity="1">PROPOSED  (explicit)</text>
+<text x="862" y="2468" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">protocol Effect {</text>
+<text x="862" y="2488" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">    var input:  TextureID</text>
+<text x="862" y="2508" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#3fd0c9" font-weight="400" text-anchor="start" opacity="1">    var output: TextureID</text>
+<text x="862" y="2528" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">    func encode(into cb: CommandBuffer)</text>
+<text x="862" y="2548" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">}</text>
+<text x="862" y="2574" font-family="SF Mono, Menlo, Consolas, monospace" font-size="11.5" fill="#dbe6f2" font-weight="400" text-anchor="start" opacity="1">pipeline = effects.map { $0.stage() }</text>
+<text x="862" y="2600" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">Scheduler fuses adjacent transforms, then walks</text>
+<text x="862" y="2618" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="11.5" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">the list. Order is the array; no per-pixel integers.</text>
+<rect x="54" y="2668" width="16" height="16" rx="4" fill="#54d17a" opacity="0.85"/>
+<text x="80" y="2682" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">seed</text>
+<rect x="150.4" y="2668" width="16" height="16" rx="4" fill="#4aa3ff" opacity="0.85"/>
+<text x="176.4" y="2682" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">transform (fusable)</text>
+<rect x="345.79999999999995" y="2668" width="16" height="16" rx="4" fill="#8f7dff" opacity="0.85"/>
+<text x="371.79999999999995" y="2682" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">composite</text>
+<rect x="475.19999999999993" y="2668" width="16" height="16" rx="4" fill="#ffb02e" opacity="0.85"/>
+<text x="501.19999999999993" y="2682" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">feedback</text>
+<rect x="597.9999999999999" y="2668" width="16" height="16" rx="4" fill="#3fd0c9" opacity="0.85"/>
+<text x="623.9999999999999" y="2682" font-family="Helvetica Neue, Helvetica, Arial, sans-serif" font-size="12" fill="#89a7ad" font-weight="400" text-anchor="start" opacity="1">gather</text>
+</svg>

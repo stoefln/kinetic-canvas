@@ -1,9 +1,34 @@
 import Foundation
 
+/// The fixed halves of the render pipeline. `image` effects transform the frame
+/// while it is being composited (they are folded into the base/subject/trail
+/// passes); `post` effects only ever see the finished frame. The renderer cannot
+/// apply a post effect earlier, so the boundary is a hard constraint, not a
+/// preference — the UI must not let an effect cross it.
+enum PipelineStage: Int, CaseIterable, Hashable {
+    case image
+    case post
+
+    var label: String {
+        switch self {
+        case .image: "Image pipeline"
+        case .post: "Post"
+        }
+    }
+
+    var blurb: String {
+        switch self {
+        case .image: "composited with the frame · reorder freely"
+        case .post: "runs on the finished frame · always last"
+        }
+    }
+}
+
 enum EffectKind: String, CaseIterable, Codable, Identifiable {
     case gradientOverlay
     case historicalTrail
     case liquidDistortion
+    case kaleidoscope
     case liveVideoFill
     case flowers
     case skeleton
@@ -15,7 +40,7 @@ enum EffectKind: String, CaseIterable, Codable, Identifiable {
     // Flowers remains decodable so presets saved by the previous build migrate
     // cleanly, but new effect menus expose only the generic Video Fill effect.
     static var allCases: [EffectKind] {
-        [.gradientOverlay, .historicalTrail, .liquidDistortion, .liveVideoFill, .skeleton, .lines, .lineSampler, .particles, .clapExplosions]
+        [.gradientOverlay, .historicalTrail, .liquidDistortion, .kaleidoscope, .liveVideoFill, .skeleton, .lines, .lineSampler, .particles, .clapExplosions]
     }
 
     var id: String { rawValue }
@@ -25,6 +50,7 @@ enum EffectKind: String, CaseIterable, Codable, Identifiable {
         case .gradientOverlay: "Gradient Overlay"
         case .historicalTrail: "Historical Trail"
         case .liquidDistortion: "Liquid Distortion"
+        case .kaleidoscope: "Kaleidoscope"
         case .liveVideoFill, .flowers: "Video Fill"
         case .skeleton: "Skeleton"
         case .lines: "Lines"
@@ -36,6 +62,28 @@ enum EffectKind: String, CaseIterable, Codable, Identifiable {
 
     var isVideoFill: Bool {
         self == .liveVideoFill || self == .flowers
+    }
+
+    /// Which half of the pipeline this effect runs in. Kaleidoscope is a gather
+    /// over the composited image, and explosions / the Line Sampler composite onto
+    /// the finished frame, so all three are post. Everything else participates in
+    /// the image pipeline while the frame is built.
+    var pipelineStage: PipelineStage {
+        switch self {
+        case .clapExplosions, .kaleidoscope, .lineSampler: .post
+        default: .image
+        }
+    }
+
+    /// False when the renderer does not read this effect's stack position: Clap
+    /// Explosions always composites before the Line Sampler and the sampler always
+    /// runs last, so moving them changes nothing. Offering the arrows anyway is
+    /// what makes the reorder control look broken.
+    var canReorder: Bool {
+        switch self {
+        case .clapExplosions, .lineSampler: false
+        default: true
+        }
     }
 }
 
@@ -74,6 +122,10 @@ struct SampleLine: Codable, Identifiable, Equatable {
     /// Arpeggio step interval as a sixteenth-note subdivision: 1 is 1/16, 2 is
     /// 1/8, 4 is 1/4. Used when `triggerMode == .arpeggio`.
     var arpRate = 1
+    /// How much of each Rhythm/Arpeggio step a note sounds, as a fraction of the
+    /// step: 0.5 is staccato, 1 is legato. Ignored by Single Shot, which holds
+    /// the note for as long as the segment keeps pixels.
+    var noteLength = 0.5
     /// Visual opacity of the line on the output. 0 = hidden by default; the
     /// editing pad still draws a faint guide so the line stays draggable.
     var visibility = 0.0
@@ -125,6 +177,7 @@ struct SampleLine: Codable, Identifiable, Equatable {
             triggerMode = settings.triggerMode
             arpPattern = settings.arpPattern
             arpRate = settings.arpRate
+            noteLength = settings.noteLength
             visibility = settings.visibility
             showNotes = settings.showNotes
             samplesOtherLines = settings.samplesOtherLines
@@ -136,7 +189,7 @@ struct SampleLine: Codable, Identifiable, Equatable {
         case id, ax, ay, bx, by, midiChannel, midiEnabled, isMonophonic, isLead,
              modulationCC,
              scale, root, octave, keyCount,
-             rhythm, triggerMode, arpPattern, arpRate, visibility, showNotes, samplesOtherLines, sampleSafeDistance,
+             rhythm, triggerMode, arpPattern, arpRate, noteLength, visibility, showNotes, samplesOtherLines, sampleSafeDistance,
              destination, clip, instrument, isEnabled
     }
 
@@ -174,6 +227,7 @@ struct SampleLine: Codable, Identifiable, Equatable {
         triggerMode = try c.decodeIfPresent(SampleTriggerMode.self, forKey: .triggerMode) ?? .rhythm
         arpPattern = try c.decodeIfPresent(SampleArpPattern.self, forKey: .arpPattern) ?? .up
         arpRate = min(16, max(1, try c.decodeIfPresent(Int.self, forKey: .arpRate) ?? 1))
+        noteLength = min(1, max(0.05, try c.decodeIfPresent(Double.self, forKey: .noteLength) ?? 0.5))
         visibility = min(1, max(0, try c.decodeIfPresent(Double.self, forKey: .visibility) ?? 0))
         showNotes = try c.decodeIfPresent(Bool.self, forKey: .showNotes) ?? false
         samplesOtherLines = try c.decodeIfPresent(Bool.self, forKey: .samplesOtherLines) ?? false
@@ -586,6 +640,20 @@ struct EffectPreset: Codable, Identifiable, Equatable {
     var liquidStrength: Double
     var liquidScale: Double
     var liquidSpeed: Double
+
+    // Kaleidoscope. Optional so presets saved by older builds remain loadable.
+    var kaleidoscopeSegments: Int?
+    var kaleidoscopeRotationDegrees: Double?
+    var kaleidoscopeSpeed: Double?
+    var kaleidoscopeZoom: Double?
+    var kaleidoscopeOpacity: Double?
+    /// Joint the symmetry center follows, as `PoseJoint.rawValue`; nil anchors to
+    /// the frame center. Stored as a string so an unknown joint in a preset saved
+    /// by a newer build degrades to the frame center instead of failing to load.
+    var kaleidoscopeJoint: String?
+    var kaleidoscopePersonIndex: Int?
+    var kaleidoscopeOffsetX: Double?
+    var kaleidoscopeOffsetY: Double?
 
     // Optional so presets saved by older builds remain loadable.
     var videoOpacity: Double?

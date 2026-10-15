@@ -36,6 +36,17 @@ final class AppController: ObservableObject {
     @Published var liquidStrength = 2.5 { didSet { syncEffects() } }
     @Published var liquidScale = 5.0 { didSet { syncEffects() } }
     @Published var liquidSpeed = 1.0 { didSet { syncEffects() } }
+    @Published var kaleidoscopeSegments = 6 { didSet { syncEffects() } }
+    @Published var kaleidoscopeRotationDegrees = 0.0 { didSet { syncEffects() } }
+    @Published var kaleidoscopeSpeed = 0.5 { didSet { syncEffects() } }
+    @Published var kaleidoscopeZoom = 1.0 { didSet { syncEffects() } }
+    @Published var kaleidoscopeOpacity = 1.0 { didSet { syncEffects() } }
+    /// Joint the fold's symmetry center follows. nil anchors to the frame center.
+    @Published var kaleidoscopeJoint: PoseJoint? = .leftWrist { didSet { syncEffects() } }
+    /// Which tracked body to read the joint from, in prominence order.
+    @Published var kaleidoscopePersonIndex = 0 { didSet { syncEffects() } }
+    @Published var kaleidoscopeOffsetX = 0.0 { didSet { syncEffects() } }
+    @Published var kaleidoscopeOffsetY = 0.0 { didSet { syncEffects() } }
     @Published var videoOpacity = 1.0 { didSet { syncEffects() } }
     @Published var videoPlaybackRate = 1.0 { didSet { syncEffects() } }
     @Published var videoScale = 1.0 { didSet { syncEffects() } }
@@ -397,6 +408,7 @@ final class AppController: ObservableObject {
         } else {
             activeEffects.append(effect)
         }
+        activeEffects = Self.normalizedEffectOrder(activeEffects)
         disabledEffects.remove(effect)
         if effect == .lines { renderer.clearTrailHistory() }
         if effect.isVideoFill { renderer.clearTrailHistory() }
@@ -435,6 +447,16 @@ final class AppController: ObservableObject {
         liquidStrength = .random(in: 0...8)
         liquidScale = .random(in: 1...12)
         liquidSpeed = .random(in: 0...3)
+
+        kaleidoscopeSegments = Int.random(in: 3...16)
+        kaleidoscopeRotationDegrees = .random(in: -180...180)
+        kaleidoscopeSpeed = .random(in: -2...2)
+        kaleidoscopeZoom = .random(in: 0.6...1.6)
+        kaleidoscopeOpacity = .random(in: 0.5...1)
+        kaleidoscopeJoint = PoseJoint.allCases.randomElement()
+        kaleidoscopePersonIndex = 0
+        kaleidoscopeOffsetX = 0
+        kaleidoscopeOffsetY = 0
 
         if let asset = videoAssets.randomElement() {
             selectedVideoAssetID = asset.id
@@ -487,7 +509,7 @@ final class AppController: ObservableObject {
             !$0.isVideoFill || !videoAssets.isEmpty
         }
         let effectCount = Int.random(in: 1...availableEffects.count)
-        activeEffects = Array(availableEffects.shuffled().prefix(effectCount))
+        activeEffects = Self.normalizedEffectOrder(Array(availableEffects.shuffled().prefix(effectCount)))
         effectBlendModes = Dictionary(uniqueKeysWithValues: activeEffects.map {
             ($0, OverlayBlendMode.allCases.randomElement() ?? .normal)
         })
@@ -784,10 +806,34 @@ final class AppController: ObservableObject {
     }
 
     func moveEffect(_ effect: EffectKind, by offset: Int) {
+        guard canMove(effect, by: offset) else { return }
         guard let source = activeEffects.firstIndex(of: effect) else { return }
+        activeEffects.swapAt(source, source + offset)
+    }
+
+    /// Whether an arrow press would actually change the rendered result. Moving is
+    /// allowed only when the effect's position is read by the renderer and the
+    /// destination stays inside the same pipeline stage — crossing the image/post
+    /// boundary would be silently ignored.
+    func canMove(_ effect: EffectKind, by offset: Int) -> Bool {
+        guard effect.canReorder,
+              let source = activeEffects.firstIndex(of: effect) else { return false }
         let destination = source + offset
-        guard activeEffects.indices.contains(destination) else { return }
-        activeEffects.swapAt(source, destination)
+        guard activeEffects.indices.contains(destination) else { return false }
+        return activeEffects[destination].pipelineStage == effect.pipelineStage
+    }
+
+    /// Active effects belonging to one pipeline stage, in stack order.
+    func effects(in stage: PipelineStage) -> [EffectKind] {
+        activeEffects.filter { $0.pipelineStage == stage }
+    }
+
+    /// Stable-partitions a stack so image effects precede post effects. Relative
+    /// order inside a stage is preserved, so this never changes the look: the
+    /// renderer already forces post effects to run last, and a stored preset from
+    /// before the stages existed simply snaps to the order it was really drawn in.
+    static func normalizedEffectOrder(_ effects: [EffectKind]) -> [EffectKind] {
+        effects.filter { $0.pipelineStage == .image } + effects.filter { $0.pipelineStage == .post }
     }
 
     func selectPreset(id: UUID) {
@@ -1006,6 +1052,19 @@ final class AppController: ObservableObject {
         renderer.liquidStrength = Float(liquidStrength / 100)
         renderer.liquidScale = Float(liquidScale)
         renderer.liquidSpeed = Float(liquidSpeed)
+        renderer.kaleidoscopeEnabled = enabledEffects.contains(.kaleidoscope)
+        renderer.kaleidoscopeBlendMode = blendMode(for: .kaleidoscope)
+        renderer.kaleidoscopeSegments = max(2, kaleidoscopeSegments)
+        renderer.kaleidoscopeRotationDegrees = Float(kaleidoscopeRotationDegrees)
+        renderer.kaleidoscopeSpeed = Float(kaleidoscopeSpeed)
+        renderer.kaleidoscopeZoom = Float(kaleidoscopeZoom)
+        renderer.kaleidoscopeOpacity = Float(kaleidoscopeOpacity)
+        renderer.kaleidoscopeJoint = kaleidoscopeJoint
+        renderer.kaleidoscopePersonIndex = max(0, kaleidoscopePersonIndex)
+        renderer.kaleidoscopeCenterOffset = SIMD2(
+            Float(kaleidoscopeOffsetX / 100),
+            Float(kaleidoscopeOffsetY / 100)
+        )
         renderer.videoFillSource = selectedVideoAssetID
         renderer.videoBlendMode = blendMode(for: .liveVideoFill)
         renderer.gradientBlendMode = blendMode(for: .gradientOverlay)
@@ -1089,6 +1148,15 @@ final class AppController: ObservableObject {
             liquidStrength: liquidStrength,
             liquidScale: liquidScale,
             liquidSpeed: liquidSpeed,
+            kaleidoscopeSegments: kaleidoscopeSegments,
+            kaleidoscopeRotationDegrees: kaleidoscopeRotationDegrees,
+            kaleidoscopeSpeed: kaleidoscopeSpeed,
+            kaleidoscopeZoom: kaleidoscopeZoom,
+            kaleidoscopeOpacity: kaleidoscopeOpacity,
+            kaleidoscopeJoint: kaleidoscopeJoint?.rawValue,
+            kaleidoscopePersonIndex: kaleidoscopePersonIndex,
+            kaleidoscopeOffsetX: kaleidoscopeOffsetX,
+            kaleidoscopeOffsetY: kaleidoscopeOffsetY,
             videoOpacity: videoOpacity,
             videoPlaybackRate: videoPlaybackRate,
             videoScale: videoScale,
@@ -1162,10 +1230,10 @@ final class AppController: ObservableObject {
         selectedVideoAssetID = videoAssets.contains(where: { $0.id == requestedVideoID })
             ? (requestedVideoID ?? defaultVideoAssetID)
             : defaultVideoAssetID
-        activeEffects = preset.effects.reduce(into: []) { effects, effect in
+        activeEffects = Self.normalizedEffectOrder(preset.effects.reduce(into: []) { effects, effect in
             let normalized: EffectKind = effect == .flowers ? .liveVideoFill : effect
             if !effects.contains(normalized) { effects.append(normalized) }
-        }
+        })
         disabledEffects = Set((preset.disabledEffects ?? []).map {
             $0 == .flowers ? .liveVideoFill : $0
         }).intersection(activeEffects)
@@ -1199,6 +1267,16 @@ final class AppController: ObservableObject {
         liquidStrength = preset.liquidStrength
         liquidScale = preset.liquidScale
         liquidSpeed = preset.liquidSpeed
+        kaleidoscopeSegments = min(64, max(2, preset.kaleidoscopeSegments ?? 6))
+        kaleidoscopeRotationDegrees = preset.kaleidoscopeRotationDegrees ?? 0
+        kaleidoscopeSpeed = preset.kaleidoscopeSpeed ?? 0.5
+        kaleidoscopeZoom = min(4, max(0.2, preset.kaleidoscopeZoom ?? 1))
+        kaleidoscopeOpacity = min(1, max(0, preset.kaleidoscopeOpacity ?? 1))
+        // An unknown joint from a newer build degrades to the frame center.
+        kaleidoscopeJoint = preset.kaleidoscopeJoint.flatMap(PoseJoint.init(rawValue:))
+        kaleidoscopePersonIndex = max(0, preset.kaleidoscopePersonIndex ?? 0)
+        kaleidoscopeOffsetX = preset.kaleidoscopeOffsetX ?? 0
+        kaleidoscopeOffsetY = preset.kaleidoscopeOffsetY ?? 0
         videoOpacity = preset.videoOpacity ?? 1.0
         videoPlaybackRate = preset.videoPlaybackRate ?? 1.0
         videoScale = preset.videoScale ?? 1.0
@@ -1421,6 +1499,7 @@ final class AppController: ObservableObject {
             || isEffectEnabled(.lines)
             || limbParticlesEnabled
             || isEffectEnabled(.clapExplosions)
+            || (isEffectEnabled(.kaleidoscope) && kaleidoscopeJoint != nil)
         let detectHands = limbParticlesEnabled || isEffectEnabled(.clapExplosions)
         if poseEffectsEnabled, !poseInferenceInProgress, poseFrameCounter.isMultiple(of: 2) {
             poseInferenceInProgress = true
